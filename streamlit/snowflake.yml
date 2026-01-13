@@ -1,0 +1,25 @@
+definition_version: 2
+entities:
+  pbit_generator:
+    type: streamlit
+    identifier:
+      name: PBIT_GENERATOR
+      schema: PBIT_GENERATOR
+      database: STREAMLIT_APPS
+    title: "Power BI Semantic Model Generator"
+    query_warehouse: XSMALL
+    main_file: streamlit_app.py
+    pages_dir: pages/
+    artifacts:
+      - streamlit_app.py
+      - "*.py"
+      - components/
+      - pages/
+      - utils/
+      - assets/
+      - img/
+      - static/
+      - templates/
+      - streamlit_antd_components/
+      - .streamlit/config.toml
+      - requirements.txt

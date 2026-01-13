@@ -1,0 +1,12 @@
+# Streamlit in Snowflake - Container Runtime
+# Power BI Template Generator
+
+streamlit>=1.28.0
+snowflake-snowpark-python>=1.8.0
+# streamlit-antd-components bundled locally as streamlit_antd_components/
+streamlit-flow-component>=1.0.0
+pandas
+cryptography>=41.0.0
+
+# Note: xpress9 removed (only needed for PBIX, not PBIT)
+# Standard library modules available: zipfile, uuid, json, io, tomllib, sqlite3

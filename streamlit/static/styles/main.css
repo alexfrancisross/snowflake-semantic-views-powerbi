@@ -1,0 +1,243 @@
+/**
+ * Main CSS for Power BI Semantic Model Generator
+ *
+ * This file contains custom CSS that extends the Snowflake Design System
+ * theme (from snowflake_theme.py) with app-specific styles.
+ */
+
+/* =============================================================================
+   LOGO HEADER ALIGNMENT
+   ============================================================================= */
+
+.logo-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+/* =============================================================================
+   STEPPER/WIZARD COMPONENT
+   ============================================================================= */
+
+/* Responsive steps component */
+.stCustomComponentV1 {
+    min-width: 0 !important;
+}
+
+/* On smaller screens, allow horizontal scroll for steps */
+@media (max-width: 1200px) {
+    [data-testid="stCustomComponentV1"] {
+        overflow-x: auto !important;
+        scrollbar-width: thin;
+    }
+
+    [data-testid="stCustomComponentV1"]::-webkit-scrollbar {
+        height: 4px;
+    }
+
+    [data-testid="stCustomComponentV1"]::-webkit-scrollbar-thumb {
+        background: #29B5E8;
+        border-radius: 2px;
+    }
+}
+
+/* =============================================================================
+   OBJECT CARDS
+   ============================================================================= */
+
+.object-card {
+    background: var(--sf-bg-primary, #FFFFFF);
+    border: 1px solid var(--sf-border-color, #E5E5E5);
+    border-left: 4px solid var(--sf-blue, #29B5E8);
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin: 8px 0;
+    transition: box-shadow 0.2s ease;
+}
+
+.object-card:hover {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.object-card-semantic {
+    border-left-color: #7254A3;  /* Purple Moon */
+}
+
+.object-card-table {
+    border-left-color: #75CDD7;  /* Star Blue */
+}
+
+.object-card-view {
+    border-left-color: #FF9F36;  /* Valencia Orange */
+}
+
+/* =============================================================================
+   RELATIONSHIP CARDS
+   ============================================================================= */
+
+.relationship-card {
+    background: var(--sf-bg-secondary, #F5F5F5);
+    border: 1px solid var(--sf-border-color, #E5E5E5);
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px 0;
+}
+
+.relationship-card-risky {
+    border-left: 4px solid #DC3545;  /* Error Red */
+    background: #FFF5F5;
+}
+
+.relationship-card-bridge {
+    border-left: 4px solid #29B5E8;  /* Snowflake Blue */
+    background: #F0F9FF;
+}
+
+/* =============================================================================
+   COLUMN BADGES
+   ============================================================================= */
+
+.column-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-size: 0.75em;
+    font-weight: 600;
+    margin-left: 4px;
+}
+
+.column-badge-dimension {
+    background-color: #D1ECF1;
+    color: #0C5460;
+}
+
+.column-badge-metric {
+    background-color: #D4EDDA;
+    color: #155724;
+}
+
+.column-badge-fact {
+    background-color: #FFF3CD;
+    color: #856404;
+}
+
+/* =============================================================================
+   CONNECTOR BADGES
+   ============================================================================= */
+
+.connector-badge {
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-size: 0.75em;
+    font-weight: 600;
+    margin-left: 8px;
+}
+
+.connector-badge-custom {
+    background-color: #D4EDDA;
+    color: #155724;
+}
+
+.connector-badge-native {
+    background-color: #D1ECF1;
+    color: #0C5460;
+}
+
+/* =============================================================================
+   TREE NAVIGATION
+   ============================================================================= */
+
+.tree-node {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.tree-node:hover {
+    background-color: var(--sf-hover, rgba(41, 181, 232, 0.1));
+}
+
+.tree-node-selected {
+    background-color: var(--sf-active, rgba(41, 181, 232, 0.2));
+}
+
+.tree-node-loading {
+    color: var(--sf-text-secondary, #5B5B5B);
+    font-style: italic;
+}
+
+/* =============================================================================
+   METADATA PREVIEW
+   ============================================================================= */
+
+.metadata-preview {
+    background: var(--sf-bg-secondary, #F5F5F5);
+    border-radius: 8px;
+    padding: 16px;
+    margin: 8px 0;
+}
+
+.metadata-preview h4 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    color: var(--sf-text-primary, #000000);
+}
+
+.metadata-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px 16px;
+}
+
+.metadata-label {
+    color: var(--sf-text-secondary, #5B5B5B);
+    font-size: 0.875em;
+}
+
+.metadata-value {
+    color: var(--sf-text-primary, #000000);
+    font-size: 0.875em;
+}
+
+/* =============================================================================
+   DOWNLOAD SECTION
+   ============================================================================= */
+
+.download-section {
+    background: linear-gradient(135deg, #F0F9FF 0%, #E8F6F7 100%);
+    border: 1px solid #75CDD7;
+    border-radius: 12px;
+    padding: 24px;
+    margin: 16px 0;
+    text-align: center;
+}
+
+.download-section h3 {
+    color: #11567F;
+    margin-top: 0;
+}
+
+/* =============================================================================
+   DARK MODE OVERRIDES
+   ============================================================================= */
+
+[data-theme="dark"] .object-card,
+[data-theme="dark"] .relationship-card,
+[data-theme="dark"] .metadata-preview {
+    background: var(--sf-bg-secondary);
+    border-color: var(--sf-border-color);
+}
+
+[data-theme="dark"] .download-section {
+    background: linear-gradient(135deg, #161B22 0%, #21262D 100%);
+    border-color: #30363D;
+}
+
+[data-theme="dark"] .download-section h3 {
+    color: #29B5E8;
+}

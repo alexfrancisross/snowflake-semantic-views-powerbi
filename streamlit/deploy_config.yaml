@@ -1,0 +1,50 @@
+# Snowflake Streamlit Deployment Configuration
+# Edit this file before running deploy.py
+
+# Snowflake Connection
+# Uses deploy_connections.toml for credentials (see deploy_connections.toml.example)
+snowflake:
+  connection_file: "deploy_connections.toml"
+  connection_name: "default"
+
+# Resource Names (customize for your environment)
+resources:
+  database: "STREAMLIT_APPS"
+  schema: "PBIT_GENERATOR"
+  stage: "APP_STAGE"
+  app_name: "PBIT_GENERATOR"
+  compute_pool: "STREAMLIT_POOL"
+  warehouse: "XSMALL"
+  network_rule: "PYPI_NETWORK_RULE"
+  external_access_integration: "PYPI_ACCESS_INTEGRATION"
+
+# App Settings
+app:
+  title: "Power BI Semantic Model Generator"
+  main_file: "streamlit_app.py"
+  # Container Runtime for PyPI package support (st.fragment, etc.)
+  runtime: "SYSTEM$ST_CONTAINER_RUNTIME_PY3_11"
+
+# Compute Pool Settings (created if doesn't exist)
+# See: https://docs.snowflake.com/en/developer-guide/streamlit/container-runtime
+compute_pool_config:
+  instance_family: "CPU_X64_XS"
+  min_nodes: 1
+  max_nodes: 1
+  auto_suspend_secs: 300  # 5 minutes
+
+# Files to exclude from upload (in addition to .snowflakeignore)
+exclude_patterns:
+  - "__pycache__"
+  - "*.pyc"
+  - ".git"
+  - ".gitignore"
+  - "deploy.py"
+  - "deploy_config.yaml"
+  - "deploy_connections.toml"
+  - "deploy_connections.toml.example"
+  - ".claude"
+  - "archive"
+  - "output"
+  - "*.zip"
+  - "*.log"

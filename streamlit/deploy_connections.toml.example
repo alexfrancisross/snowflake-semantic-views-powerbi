@@ -1,0 +1,66 @@
+# Snowflake Connection Configuration for Deployment
+# ================================================
+# Copy this file to deploy_connections.toml and fill in your credentials.
+# The deploy_connections.toml file is gitignored for security.
+#
+# Usage:
+#   cp deploy_connections.toml.example deploy_connections.toml
+#   # Edit deploy_connections.toml with your credentials
+#   python deploy.py --dry-run  # Test configuration
+#   python deploy.py            # Deploy app
+
+[default]
+# Required: Snowflake account identifier
+# Format: <account_identifier> (e.g., "xy12345.us-east-1" or "myorg-myaccount")
+account = "your-account"
+
+# Required: Snowflake username
+user = "your-username"
+
+# Required: Warehouse for deployment operations
+warehouse = "your-warehouse"
+
+# Optional: Role to use (defaults to user's default role)
+# role = "ACCOUNTADMIN"
+
+# Optional: Database context (can be overridden in deploy_config.yaml)
+# database = "your-database"
+
+# ============================================
+# Authentication - Choose ONE method below
+# ============================================
+
+# Option 1: Password Authentication (simplest)
+# --------------------------------------------
+password = "your-password"
+
+# Option 2: Key-Pair Authentication (more secure)
+# ------------------------------------------------
+# Uncomment the lines below and comment out the password line above
+#
+# Path to your private key file (supports ~ for home directory)
+# private_key_path = "~/.ssh/snowflake_rsa_key.p8"
+#
+# Optional: Passphrase if your private key is encrypted
+# private_key_passphrase = "your-key-passphrase"
+
+# ============================================
+# Additional Connection Profiles (optional)
+# ============================================
+# You can define multiple profiles for different environments:
+#
+# [production]
+# account = "prod-account"
+# user = "deploy-user"
+# warehouse = "DEPLOY_WH"
+# private_key_path = "~/.ssh/prod_key.p8"
+#
+# [staging]
+# account = "staging-account"
+# user = "deploy-user"
+# warehouse = "DEV_WH"
+# password = "staging-password"
+#
+# Then specify the profile in deploy_config.yaml:
+#   snowflake:
+#     connection_name: "production"

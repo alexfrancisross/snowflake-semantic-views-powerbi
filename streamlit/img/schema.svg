@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!-- Open folder icon for schema -->
+  <path d="M1 4 L1 13 Q1 14 2 14 L14 14 Q15 14 15 13 L15 6 L13 6 L13 4 Q13 3 12 3 L7 3 L5.5 1.5 L2 1.5 Q1 1.5 1 2.5 Z" fill="#F5BA42" stroke="#C49A2D" stroke-width="0.5"/>
+  <path d="M0 6 L3 6 L4 4 L12 4 L13 6 L16 6 L14 14 L2 14 Z" fill="#FFCC4D" stroke="#C49A2D" stroke-width="0.5"/>
+</svg>
