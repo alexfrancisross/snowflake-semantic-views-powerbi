@@ -53,7 +53,7 @@ LIMIT 1000
 ![A DirectQuery report powered by Snowflake Semantic Views](img/directquery-report.png)
 **A DirectQuery report powered by Snowflake Semantic Views**
 
-Semantic views support standard SQL clauses including SELECT, WHERE, GROUP BY, ORDER BY, and LIMIT. The key difference is that metrics must be wrapped in the [`AGG()` function](https://docs.snowflake.com/en/user-guide/views-semantic-querying), which tells Snowflake to apply the metric's predefined aggregation logic. Dimensions and facts are selected normally without AGG().
+Semantic views support standard SQL clauses including SELECT, WHERE, GROUP BY, ORDER BY, and LIMIT. The key difference is that metrics must be wrapped in the [`AGG()` function](https://docs.snowflake.com/en/user-guide/views-semantic/querying), which tells Snowflake to apply the metric's predefined aggregation logic. Dimensions and facts are selected normally without AGG().
 
 This means you get all the flexibility of SQL—filtering, sorting, grouping, pagination—while the semantic layer ensures consistent metric calculations across all your reports.
 
@@ -80,7 +80,7 @@ root/
 ## Requirements
 
 - Power BI Desktop (January 2024 or later recommended)
-- Snowflake account with [Semantic Views](https://docs.snowflake.com/en/user-guide/views-semantic) and standard SQL support enabled ([Enterprise Edition](https://docs.snowflake.com/en/user-guide/intro-editions) or higher)
+- Snowflake account with [Semantic Views](https://docs.snowflake.com/en/user-guide/views-semantic/overview) and standard SQL support enabled ([Enterprise Edition](https://docs.snowflake.com/en/user-guide/intro-editions) or higher)
 - Appropriate Snowflake role with SELECT permissions on your semantic views
 
 ## Installation
