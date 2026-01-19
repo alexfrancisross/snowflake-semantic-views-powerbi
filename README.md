@@ -1,4 +1,4 @@
-# Snowflake Semantic Views Connector
+# Power BI Snowflake Semantic Views Connector
 
 A Power BI custom connector that brings Snowflake Semantic Views directly into your reports with full DirectQuery support. Query your semantic layer in real-time without data extracts or imports.
 
@@ -336,7 +336,20 @@ You can also use "Analyze in Excel" to create PivotTables connected to your sema
 
 ## Version
 
-3.0.0
+3.1.0
+
+### Changelog
+
+**v3.1.0** - PrivateLink Support
+- Added full support for Snowflake PrivateLink URLs
+- Added region detection for legacy locator format
+- Enhanced server validation with PrivateLink-specific error messages
+
+**v3.0.0** - Initial Release
+- Full DirectQuery support for Snowflake Semantic Views
+- PAT, OAuth, and KeyPair authentication
+- PBIT Generator Streamlit app
+- MSI installer for enterprise deployment
 
 ## License
 
