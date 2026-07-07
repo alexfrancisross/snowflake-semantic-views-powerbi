@@ -29,14 +29,6 @@ Extension.LoadFunction = (name as text) =>
 EnableTraceOutput = false;  // ← SET TO TRUE ONLY FOR LOCAL DEBUGGING
 
 // =============================================================================
-// AUTHENTICATION MODE
-// =============================================================================
-// USE_DEV_CREDENTIALS: Toggle between dev and production authentication
-//   true  = Use hardcoded DEV_CREDENTIALS below (for development)
-//   false = Use Power BI authentication dialog (for production)
-USE_DEV_CREDENTIALS = false;  // ← SET TO FALSE FOR PRODUCTION
-
-// =============================================================================
 // STRICT FOLDING MODE
 // =============================================================================
 // STRICT_FOLDING_MODE: Control behavior when filters cannot be folded to SQL
@@ -119,39 +111,14 @@ DEFAULT_PREVIEW_LIMIT = 100;
 DEFAULT_COMMAND_TIMEOUT = 300;  // 5 minutes
 DEFAULT_CONNECTION_TIMEOUT = 60;  // 1 minute
 
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-// WARNING: DEVELOPMENT CREDENTIALS - SECURITY RISK
-// These credentials are hardcoded for local development/testing ONLY.
-// NEVER commit real credentials to source control.
-// Set USE_DEV_CREDENTIALS = false for production deployments.
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-//
-// DEVELOPMENT CREDENTIALS
-// Set to null for production - use Power BI credential prompts
-// For local testing, set USE_DEV_CREDENTIALS = true and populate this record
-//
-DEV_CREDENTIALS = null;
-
 //
 // CREDENTIAL RETRIEVAL FUNCTION
-// Returns credentials based on USE_DEV_CREDENTIALS flag
-// When true: returns DEV_CREDENTIALS (with optional overrides)
-// When false: returns credentials from Power BI UI (Extension.CurrentCredential)
+// Returns credentials from Power BI UI (Extension.CurrentCredential)
 // NOTE: server and warehouse are REQUIRED (enforced by function signature)
 // v3.2.0: Uses ParseSnowflakeServer for proper account extraction (supports PrivateLink)
 //
 GetCredentials = (server as text, warehouse as text, optional role as text) as record =>
-    if USE_DEV_CREDENTIALS then
-        // In dev mode: use DEV_CREDENTIALS, but allow overrides if user specifies values
-        // v3.2.0: Use ParseSnowflakeServer for proper account extraction
-        let
-            serverInfo = if server <> null and server <> "" then ParseSnowflakeServer(server) else null
-        in
-            DEV_CREDENTIALS &
-                (if serverInfo <> null then [Server = server, Account = serverInfo[Account]] else []) &
-                (if warehouse <> null and warehouse <> "" then [Warehouse = warehouse] else []) &
-                (if role <> null and role <> "" then [Role = role] else [])
-    else if server = null or server = "" then
+    if server = null or server = "" then
         // Production mode: server is REQUIRED - show clear error
         error Error.Record(ERROR_DATA_SOURCE,
             "Server name is required. Please enter your Snowflake server URL (e.g., xy12345.snowflakecomputing.com).")
@@ -319,60 +286,10 @@ StatisticalFunctionMapping = [
 
 //
 // Function Type Definition
-// When USE_DEV_CREDENTIALS = true, fields are pre-populated with dev values for convenience
+// Server and Warehouse are REQUIRED - this ensures Power BI shows the
+// parameter dialog BEFORE the authentication dialog
 //
-SnowflakeSemanticViewsType = if USE_DEV_CREDENTIALS then
-    // Dev mode: Pre-populate fields with default values (but still required)
-    type function (
-        server as (type text meta [
-            Documentation.FieldCaption = "Snowflake Server",
-            Documentation.FieldDescription = "Snowflake Server URL (e.g., xy12345.snowflakecomputing.com).",
-            Documentation.SampleValues = { DEV_CREDENTIALS[Server] },
-            Documentation.DefaultValue = DEV_CREDENTIALS[Server]
-        ]),
-        warehouse as (type text meta [
-            Documentation.FieldCaption = "Warehouse Name",
-            Documentation.FieldDescription = "Snowflake Warehouse to use for executing queries.",
-            Documentation.SampleValues = { DEV_CREDENTIALS[Warehouse] },
-            Documentation.DefaultValue = DEV_CREDENTIALS[Warehouse]
-        ]),
-        optional role as (type text meta [
-            Documentation.FieldCaption = "Role (optional)",
-            Documentation.FieldDescription = "Snowflake role to use for the session. Leave empty for default role.",
-            Documentation.SampleValues = { "ACCOUNTADMIN", "PUBLIC" },
-            Documentation.DefaultValue = DEV_CREDENTIALS[Role]
-        ]),
-        optional connectionTimeout as (type number meta [
-            Documentation.FieldCaption = "Connection Timeout (seconds)",
-            Documentation.FieldDescription = "Number of seconds to wait for connection. Default is 60.",
-            Documentation.SampleValues = { 60 },
-            Documentation.DefaultValue = 60
-        ]),
-        optional commandTimeout as (type number meta [
-            Documentation.FieldCaption = "Command Timeout (seconds)",
-            Documentation.FieldDescription = "Number of seconds to wait for a query to execute. Default is 300 (5 minutes). Increase for large semantic views.",
-            Documentation.SampleValues = { 300 },
-            Documentation.DefaultValue = 300
-        ]),
-        optional useHighPrecision as (type logical meta [
-            Documentation.FieldCaption = "Use High Precision",
-            Documentation.FieldDescription = "Use Decimal type for numeric values (true) or Int64/Double (false). Default is true (high precision).",
-            Documentation.AllowedValues = { true, false },
-            Documentation.DefaultValue = true
-        ]),
-        optional dateTimePrecision as (type text meta [
-            Documentation.FieldCaption = "DateTime Precision",
-            Documentation.FieldDescription = "Precision for datetime values. Default is 'microseconds' (Power BI limit).",
-            Documentation.AllowedValues = { "microseconds", "nanoseconds" },
-            Documentation.DefaultValue = "microseconds"
-        ])
-    ) as table meta [
-        Documentation.Name = "Snowflake Semantic Views Connector",
-        Documentation.LongDescription = "Connect to Snowflake Semantic Views using DirectQuery with full query folding support via ADBC."
-    ]
-else
-    // Production mode: Server and Warehouse are REQUIRED
-    // This ensures Power BI shows parameter dialog BEFORE authentication dialog
+SnowflakeSemanticViewsType =
     type function (
         server as (type text meta [
             Documentation.FieldCaption = "Server",
@@ -1207,7 +1124,7 @@ SnowflakeSemanticViewsImpl = (
         BuildCustomNavigation = () as table =>
             let
                 // Create execution context
-                // Uses credentials from GetCredentials() based on USE_DEV_CREDENTIALS flag
+                // Uses credentials from GetCredentials()
                 // ALL auth types now use ADBC (unified execution path)
                 // - KEYPAIR_ADBC: Uses auth_jwt with private key
                 // - PAT: Uses auth_oauth with token

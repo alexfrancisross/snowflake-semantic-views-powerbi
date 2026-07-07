@@ -11,6 +11,7 @@ These scripts create three schemas with sample data based on the TPC-H benchmark
 | `TPCH_RICH_TABLES` | 8 base tables | Source data with full column comments |
 | `TPCH_RICH_VIEWS` | 7 analytical views | Pre-built views for common analysis patterns |
 | `TPCH_RICH_SVS` | 13 semantic views | Snowflake Semantic Views demonstrating various patterns |
+| `TPCH_RICH_SVS` | 4 edge-case semantic views | Regression fixtures for GitHub issue #4 (logical/physical name mismatches) |
 
 ## Prerequisites
 
@@ -28,6 +29,7 @@ Run the scripts in order using Snowflake CLI or SnowSQL:
 snow sql -f 01_tpch_rich_tables.sql
 snow sql -f 02_tpch_rich_views.sql
 snow sql -f 03_tpch_rich_svs.sql
+snow sql -f 04_edge_case_svs.sql   # optional: GitHub issue #4 regression fixtures
 ```
 
 ## Configuration
@@ -85,6 +87,17 @@ All semantic views use **single-path relationships** to ensure compatibility wit
 | SV_SALES_ANALYSIS | Single-path | Lineitem → Orders → Customer → Nation → Region | Sales by geography |
 | SV_PRODUCT_SUPPLY | Single-path | Lineitem → Part | Product volume |
 | SV_SUPPLIER_INVENTORY | Single-path | Partsupp → Supplier/Part → Nation → Region | Inventory value |
+
+### TPCH_RICH_SVS (Edge Case Semantic Views)
+
+`04_edge_case_svs.sql` is an optional script that creates permanent regression fixtures for GitHub issue #4 ("invalid identifier" when a logical dimension/metric name differs from its physical column). None of these patterns reproduced the reported failure during investigation, but the views are kept so the integration test suite catches any future regression.
+
+| Semantic View | Pattern | Purpose |
+|---------------|---------|---------|
+| SV_EDGE_LOGICAL_MISMATCH | Every dimension/metric logical name differs from its physical column, 2-hop relationship (Region → Nation → Customer) | Baseline logical/physical name mismatch coverage |
+| SV_EDGE_INLINE_TABLE | SQL-defined (inline-view) logical table with mismatched logical names | Covers logical tables without a `BASE_TABLE_NAME` |
+| SV_EDGE_QUOTED_MIXED_CASE | Mixed-case and space-containing quoted logical names | Covers quoted identifiers that differ from upper-case physical columns |
+| SV_EDGE_METRIC_FILTER | Metric-filter scenario (outer subquery wrap) combined with mismatched logical names | Exercises the metric-filter/outer-subquery code path |
 
 ## Sample Queries
 
@@ -239,6 +252,7 @@ The semantic views support `AGG()` aggregation syntax required by the semantic v
 | `01_tpch_rich_tables.sql` | ~8 KB | Creates 8 base tables with data |
 | `02_tpch_rich_views.sql` | ~12 KB | Creates 7 analytical views |
 | `03_tpch_rich_svs.sql` | ~18 KB | Creates 13 semantic views |
+| `04_edge_case_svs.sql` | ~5 KB | Creates 4 edge-case semantic views (GitHub issue #4 regression fixtures, optional) |
 | `README.md` | This file | Documentation |
 
 ## License

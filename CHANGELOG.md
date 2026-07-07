@@ -22,6 +22,15 @@ All notable changes to the Snowflake Semantic Views Power BI Connector.
   (`Set-PQCredential.ps1`), and fixture verification
   (`Verify-Fixtures.ps1`).
 
+### Removed
+
+- **Dev-credentials toggle** (`USE_DEV_CREDENTIALS`/`DEV_CREDENTIALS`) in
+  `connector/src/SnowflakeSemanticViews.pq`: the flag was already hardcoded
+  to `false` and no code path (including the PQTest live suite, which
+  authenticates through the production `Extension.CurrentCredential()`
+  path via a real PAT registered with `Set-PQCredential.ps1`) relied on it.
+  `GetCredentials` now always uses the production authentication path.
+
 ### Fixed
 
 - **Bare multi-segment account identifiers dropped their region**: a

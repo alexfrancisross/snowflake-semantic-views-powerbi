@@ -9,3 +9,6 @@ tests/pqtest/results/
 tests/pqtest/*.cred.json
 .cortex/
 docs/
+.ruff_cache/
+tests/
+pyproject.toml
