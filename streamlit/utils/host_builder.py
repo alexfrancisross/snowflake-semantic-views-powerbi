@@ -48,7 +48,10 @@ def build_snowflake_host(account_identifier: str | None, region: str | None = No
         # pass through unchanged so we never mangle a working host.
         return account_identifier
 
-    if region:
+    if region and "." not in account_identifier:
+        # Only inject the region for single-segment locators; multi-segment
+        # identifiers (e.g. "xy12345.eu-west-2.aws") already carry their
+        # region, and injecting it again would build a double-region host.
         return f"{account_identifier}.{region}.snowflakecomputing.com"
 
     return f"{account_identifier}.snowflakecomputing.com"
