@@ -1,0 +1,501 @@
+// FilterParser.pqm
+// Shared filter expression parsing for OnSelectRows handlers
+// Converts Power BI filter expressions (RowExpression AST) to SQL WHERE conditions
+// Used by both Semantic Views and Regular Tables
+
+let
+    // =========================================================================
+    // HELPER: Map AST operator to SQL operator
+    // =========================================================================
+    MapOperator = (op as nullable text) as nullable text =>
+        if op = "Equals" then "="
+        else if op = "NotEquals" then "<>"
+        else if op = "GreaterThan" then ">"
+        else if op = "LessThan" then "<"
+        else if op = "GreaterThanOrEquals" then ">="
+        else if op = "LessThanOrEquals" then "<="
+        else null,
+
+    // =========================================================================
+    // HELPER: Strip table prefix from column name (e.g., "t0.REGION" -> "REGION")
+    // =========================================================================
+    StripPrefix = (colName as nullable text) as nullable text =>
+        if colName = null then null
+        else if Text.Contains(colName, ".") then
+            let parts = Text.Split(colName, ".")
+            in List.Last(parts)
+        else colName,
+
+    // =========================================================================
+    // HELPER: Check if column name is a Power BI internal alias
+    // Power BI generates aliases like: a0, a1, c0, c10, MainTable.a0, etc.
+    // These are NOT actual columns - filters on them should be ignored
+    // =========================================================================
+    IsPowerBIAlias = (colName as nullable text) as logical =>
+        let
+            stripped = StripPrefix(colName),
+            // Pattern: starts with 'a' or 'c' followed by digits only
+            isAlias = stripped <> null and Text.Length(stripped) >= 2 and
+                (Text.StartsWith(stripped, "a") or Text.StartsWith(stripped, "c")) and
+                (try Number.FromText(Text.Range(stripped, 1)) otherwise null) <> null
+        in
+            isAlias,
+
+    // =========================================================================
+    // HELPER: Parse a single comparison node
+    // Handles [Column] = value, value = [Column], AND [Column1] > [Column2] patterns
+    // =========================================================================
+    ParseComparison = (node as nullable record) as record =>
+        let
+            isBinary = node <> null and node[Kind]? = "Binary",
+            astOp = if isBinary then node[Operator]? else null,
+            sqlOp = MapOperator(astOp),
+
+            // Try [Column] on left, value on right (most common)
+            leftIsField = isBinary and node[Left]?[Kind]? = "FieldAccess",
+            rightIsConst = isBinary and node[Right]?[Kind]? = "Constant",
+
+            // Try value on left, [Column] on right (less common)
+            leftIsConst = isBinary and node[Left]?[Kind]? = "Constant",
+            rightIsField = isBinary and node[Right]?[Kind]? = "FieldAccess",
+
+            // Column-to-column comparison ([Col1] > [Col2])
+            isBothFields = leftIsField and rightIsField,
+
+            // Extract column and value based on position
+            rawCol = if leftIsField then node[Left][MemberName]?
+                else if rightIsField then node[Right][MemberName]?
+                else null,
+            col = StripPrefix(rawCol),
+            val = if rightIsConst then node[Right][Value]?
+                else if leftIsConst then node[Left][Value]?
+                else null,
+
+            // For column-to-column: extract right column name
+            rawRightCol = if isBothFields then node[Right][MemberName]? else null,
+            rightCol = if rawRightCol <> null then StripPrefix(rawRightCol) else null,
+
+            // Detect IS NULL / IS NOT NULL patterns
+            valueIsExplicitNull = (rightIsConst and node[Right][Value]? = null) or
+                                 (leftIsConst and node[Left][Value]? = null),
+            isNullPattern = valueIsExplicitNull and (astOp = "Equals" or astOp = "NotEquals"),
+            nullOp = if isNullPattern and astOp = "Equals" then "IS NULL"
+                else if isNullPattern and astOp = "NotEquals" then "IS NOT NULL"
+                else null,
+
+            // Flip operator if value was on left (e.g., 5 > [Col] becomes [Col] < 5)
+            flipOp = (op) =>
+                if op = ">" then "<"
+                else if op = "<" then ">"
+                else if op = ">=" then "<="
+                else if op = "<=" then ">="
+                else op,
+            finalOp = if leftIsConst and rightIsField then flipOp(sqlOp) else sqlOp,
+
+            // Check if this is a Power BI internal alias
+            isInternalAlias = IsPowerBIAlias(rawCol),
+            isRightColAlias = if rightCol <> null then IsPowerBIAlias(rawRightCol) else false
+        in
+            // If column is a Power BI alias, return ignore marker
+            if isInternalAlias then [Ignore = true]
+            // Handle IS NULL / IS NOT NULL patterns
+            else if col <> null and nullOp <> null then
+                [Column = col, Operator = nullOp, Value = null]
+            // Handle column-to-column comparison
+            else if isBothFields and col <> null and rightCol <> null and sqlOp <> null and not isRightColAlias then
+                [Column = col, Operator = sqlOp, Value = [ColumnRef = rightCol]]
+            else if col <> null and finalOp <> null and val <> null then
+                [Column = col, Operator = finalOp, Value = val]
+            else null,
+
+    // =========================================================================
+    // HELPER: Parse Value.NullableEquals invocation (SqlExpression.ToExpression pattern)
+    // =========================================================================
+    ParseValueNullableEquals = (node as nullable record) as nullable record =>
+        let
+            isInvocation = node <> null and node[Kind]? = "Invocation",
+            funcNode = if isInvocation then node[Function]? else null,
+            funcValue = if funcNode <> null and funcNode[Kind]? = "Constant" then funcNode[Value]? else null,
+            isNullableEqualsDirect = funcValue <> null and (try funcValue = Value.NullableEquals otherwise false),
+            isNullableEqualsFromShared = funcValue <> null and (try funcValue = #shared[Value.NullableEquals] otherwise false),
+            isNullableEqualsBehavioral = funcValue <> null and (try (funcValue(1, 1) = true and funcValue(1, 2) = false) otherwise false),
+            isNullableEquals = isNullableEqualsDirect or isNullableEqualsFromShared or isNullableEqualsBehavioral,
+            args = if isInvocation then node[Arguments]? else null,
+            hasArgs = args <> null and List.Count(args) >= 2,
+
+            firstArg = if hasArgs then args{0} else null,
+            secondArg = if hasArgs then args{1} else null,
+
+            firstIsField = firstArg <> null and firstArg[Kind]? = "FieldAccess",
+            secondIsConst = secondArg <> null and secondArg[Kind]? = "Constant",
+            firstIsConst = firstArg <> null and firstArg[Kind]? = "Constant",
+            secondIsField = secondArg <> null and secondArg[Kind]? = "FieldAccess",
+
+            rawCol = if firstIsField then firstArg[MemberName]?
+                else if secondIsField then secondArg[MemberName]?
+                else null,
+            col = StripPrefix(rawCol),
+            val = if secondIsConst then secondArg[Value]?
+                else if firstIsConst then firstArg[Value]?
+                else null
+        in
+            if isNullableEquals and col <> null and val <> null then
+                [Column = col, Operator = "=", Value = val]
+            else null,
+
+    // =========================================================================
+    // HELPER: Parse List.Contains invocation for multi-select filters
+    // Pattern: List.Contains({value1, value2, ...}, [Column])
+    // =========================================================================
+    ParseListContains = (node as nullable record) as nullable record =>
+        let
+            isInvocation = node <> null and node[Kind]? = "Invocation",
+            funcNode = if isInvocation then node[Function]? else null,
+            funcValue = if funcNode <> null and funcNode[Kind]? = "Constant" then funcNode[Value]? else null,
+            isListContainsDirect = funcValue <> null and (try funcValue = List.Contains otherwise false),
+            isListContainsFromShared = funcValue <> null and (try funcValue = #shared[List.Contains] otherwise false),
+            isListContainsBehavioral = funcValue <> null and (try (funcValue({1,2}, 1) = true and funcValue({1,2}, 3) = false) otherwise false),
+            isListContains = isListContainsDirect or isListContainsFromShared or isListContainsBehavioral,
+            args = if isInvocation then node[Arguments]? else null,
+            hasArgs = args <> null and List.Count(args) >= 2,
+
+            firstArg = if hasArgs then args{0} else null,
+            isListKind = firstArg <> null and firstArg[Kind]? = "List",
+            isConstantList = firstArg <> null and firstArg[Kind]? = "Constant" and (firstArg[Value]? is list),
+            isList = isListKind or isConstantList,
+            listItemsFromItems = if isListKind then firstArg[Items]? else null,
+            listItemsFromValue = if isListKind then firstArg[Value]? else null,
+            listItemsFromConstant = if isConstantList then firstArg[Value]? else null,
+            listItems = if listItemsFromItems <> null then listItemsFromItems
+                else if listItemsFromValue <> null then listItemsFromValue
+                else listItemsFromConstant,
+
+            secondArg = if hasArgs then args{1} else null,
+            isField = secondArg <> null and secondArg[Kind]? = "FieldAccess",
+            rawCol = if isField then secondArg[MemberName]? else null,
+            col = StripPrefix(rawCol),
+
+            // Extract values from list items
+            itemsAreDirectValues = listItems <> null and List.Count(listItems) > 0 and
+                (try List.AllTrue(List.Transform(listItems, each not (_ is record) and not (_ is table))) otherwise false),
+            itemsAreAstNodes = listItems <> null and List.Count(listItems) > 0 and not itemsAreDirectValues and
+                (try List.AllTrue(List.Transform(listItems, each _ is record)) otherwise false),
+            valuesFromAst = if itemsAreAstNodes then
+                List.Transform(listItems, each if _[Kind]? = "Constant" then _[Value]? else null)
+                else null,
+            astValuesValid = valuesFromAst <> null and (try not List.Contains(valuesFromAst, null) otherwise false),
+            directValuesValid = itemsAreDirectValues,
+            values = if directValuesValid then listItems
+                else if astValuesValid then valuesFromAst
+                else null,
+            allValuesValid = values <> null and List.Count(values) > 0,
+
+            structureMatches = isInvocation and isList and isField and allValuesValid,
+
+            // Wrong argument order detection
+            firstIsField = firstArg <> null and firstArg[Kind]? = "FieldAccess",
+            secondIsConstOrList = secondArg <> null and
+                (secondArg[Kind]? = "Constant" or secondArg[Kind]? = "List"),
+            isWrongArgumentOrder = isListContains and firstIsField and secondIsConstOrList,
+            wrongOrderColName = if isWrongArgumentOrder then StripPrefix(firstArg[MemberName]?) else null
+        in
+            if isWrongArgumentOrder then
+                [
+                    Error = true,
+                    ErrorType = "WrongArgumentOrder",
+                    Message = "List.Contains arguments are reversed. Use List.Contains({value1, value2, ...}, [" &
+                        (wrongOrderColName ?? "Column") & "]) instead of List.Contains([" &
+                        (wrongOrderColName ?? "Column") & "], value)."
+                ]
+            else if (isListContains or structureMatches) and col <> null and allValuesValid then
+                [Column = col, Operator = "IN", Value = values]
+            else null,
+
+    // =========================================================================
+    // HELPER: Flatten OR expressions into list of branches
+    // =========================================================================
+    FlattenOr = (node as nullable record) as list =>
+        if node = null then {}
+        else if node[Kind]? = "Binary" and node[Operator]? = "Or" then
+            List.Combine({@FlattenOr(node[Left]?), @FlattenOr(node[Right]?)})
+        else {node},
+
+    // =========================================================================
+    // HELPER: Parse text pattern functions (Text.StartsWith, Text.Contains, Text.EndsWith)
+    // =========================================================================
+    ParseTextFunction = (node as nullable record, escapeIdentifier as function, formatSqlValue as function) as nullable record =>
+        let
+            isInvocation = node <> null and node[Kind]? = "Invocation",
+            funcNode = if isInvocation then node[Function]? else null,
+            funcValue = if funcNode <> null and funcNode[Kind]? = "Constant" then funcNode[Value]? else null,
+            funcMetaName = try Value.Metadata(funcValue)[Name] otherwise null,
+            isStartsWith = funcValue <> null and (
+                funcMetaName = "Text.StartsWith" or
+                (try funcValue = Text.StartsWith otherwise false) or
+                (try funcValue = #shared[Text.StartsWith] otherwise false)),
+            isContains = funcValue <> null and (
+                funcMetaName = "Text.Contains" or
+                (try funcValue = Text.Contains otherwise false) or
+                (try funcValue = #shared[Text.Contains] otherwise false)),
+            isEndsWith = funcValue <> null and (
+                funcMetaName = "Text.EndsWith" or
+                (try funcValue = Text.EndsWith otherwise false) or
+                (try funcValue = #shared[Text.EndsWith] otherwise false)),
+            isTextFunction = isStartsWith or isContains or isEndsWith,
+
+            args = if isInvocation then node[Arguments]? else null,
+            hasArgs = args <> null and List.Count(args) >= 2,
+            firstArg = if hasArgs then args{0} else null,
+            isField = firstArg <> null and firstArg[Kind]? = "FieldAccess",
+            rawCol = if isField then firstArg[MemberName]? else null,
+            col = StripPrefix(rawCol),
+            secondArg = if hasArgs then args{1} else null,
+            isConst = secondArg <> null and secondArg[Kind]? = "Constant",
+            patternValue = if isConst then secondArg[Value]? else null,
+            escapedPattern = if patternValue <> null then
+                Text.Replace(Text.Replace(Text.Replace(patternValue, "\", "\\"), "%", "\%"), "_", "\_")
+            else null,
+            likePattern = if isStartsWith then escapedPattern & "%"
+                else if isEndsWith then "%" & escapedPattern
+                else if isContains then "%" & escapedPattern & "%"
+                else null
+        in
+            if isTextFunction and col <> null and likePattern <> null then
+                [Column = col, Operator = "LIKE", Value = likePattern]
+            else null,
+
+    // =========================================================================
+    // HELPER: Parse text transform comparisons (Text.Length, Text.Replace)
+    // =========================================================================
+    ParseTextTransformComparison = (node as nullable record, escapeIdentifier as function, formatSqlValue as function) as nullable record =>
+        let
+            isBinary = node <> null and node[Kind]? = "Binary",
+            astOp = if isBinary then node[Operator]? else null,
+            sqlOp = MapOperator(astOp),
+            leftNode = if isBinary then node[Left]? else null,
+            rightNode = if isBinary then node[Right]? else null,
+
+            leftIsInvocation = leftNode <> null and leftNode[Kind]? = "Invocation",
+            funcNode = if leftIsInvocation then leftNode[Function]? else null,
+            funcValue = if funcNode <> null and funcNode[Kind]? = "Constant" then funcNode[Value]? else null,
+            funcMetaName = try Value.Metadata(funcValue)[Name] otherwise null,
+
+            rightIsConst = rightNode <> null and rightNode[Kind]? = "Constant",
+            compareValue = if rightIsConst then rightNode[Value]? else null,
+
+            funcArgs = if leftIsInvocation then leftNode[Arguments]? else null,
+            hasArgs = funcArgs <> null and List.Count(funcArgs) >= 1,
+            firstArg = if hasArgs then funcArgs{0} else null,
+            firstIsField = firstArg <> null and firstArg[Kind]? = "FieldAccess",
+            rawCol = if firstIsField then firstArg[MemberName]? else null,
+            col = StripPrefix(rawCol),
+
+            isTextLength = funcValue <> null and (
+                funcMetaName = "Text.Length" or
+                (try funcValue = Text.Length otherwise false) or
+                (try funcValue = #shared[Text.Length] otherwise false)),
+
+            isTextReplace = funcValue <> null and (
+                funcMetaName = "Text.Replace" or
+                (try funcValue = Text.Replace otherwise false) or
+                (try funcValue = #shared[Text.Replace] otherwise false)),
+            hasReplaceArgs = funcArgs <> null and List.Count(funcArgs) >= 3,
+            replaceOld = if hasReplaceArgs and funcArgs{1}[Kind]? = "Constant" then funcArgs{1}[Value]? else null,
+            replaceNew = if hasReplaceArgs and funcArgs{2}[Kind]? = "Constant" then funcArgs{2}[Value]? else null,
+
+            sqlExpr = if isTextLength and col <> null then
+                "LENGTH(" & escapeIdentifier(col) & ")"
+            else if isTextReplace and col <> null and replaceOld <> null and replaceNew <> null then
+                "REPLACE(" & escapeIdentifier(col) & ", " & formatSqlValue(replaceOld) & ", " & formatSqlValue(replaceNew) & ")"
+            else null,
+
+            isValid = sqlExpr <> null and sqlOp <> null and compareValue <> null
+        in
+            if isValid then
+                [SqlExpression = sqlExpr, Operator = sqlOp, Value = compareValue]
+            else null,
+
+    // =========================================================================
+    // HELPER: Invert operator for NOT expressions
+    // =========================================================================
+    InvertOperator = (cond as nullable record) as nullable record =>
+        if cond = null then null
+        else if cond[Ignore]? = true then cond
+        else if cond[Operator]? = null then null
+        else
+            let
+                op = cond[Operator],
+                invertedOp = if op = "=" then "<>"
+                    else if op = "<>" then "="
+                    else if op = ">" then "<="
+                    else if op = "<" then ">="
+                    else if op = ">=" then "<"
+                    else if op = "<=" then ">"
+                    else if op = "IN" then "NOT IN"
+                    else if op = "NOT IN" then "IN"
+                    else if op = "IS NULL" then "IS NOT NULL"
+                    else if op = "IS NOT NULL" then "IS NULL"
+                    else if op = "LIKE" then "NOT LIKE"
+                    else if op = "NOT LIKE" then "LIKE"
+                    else null
+            in
+                if invertedOp <> null then cond & [Operator = invertedOp] else null,
+
+    // =========================================================================
+    // HELPER: Parse OR as IN clause
+    // =========================================================================
+    ParseOrAsIn = (node as nullable record) as nullable record =>
+        let
+            isBinaryOr = node <> null and node[Kind]? = "Binary" and node[Operator]? = "Or",
+            orBranches = if isBinaryOr then FlattenOr(node) else {},
+
+            parsedBranches = List.Transform(orBranches, (branch) =>
+                let
+                    isUnaryNot = branch[Kind]? = "Unary" and branch[Operator]? = "Not",
+                    innerExpr = if isUnaryNot then branch[Expression]? else branch,
+                    listContainsResult = if innerExpr <> null and innerExpr[Kind]? = "Invocation" then
+                        ParseListContains(innerExpr) else null,
+                    binaryResult = if listContainsResult = null then ParseComparison(innerExpr) else null,
+                    nullableEqualsResult = if binaryResult = null and listContainsResult = null then
+                        ParseValueNullableEquals(innerExpr) else null,
+                    baseResult = if listContainsResult <> null then listContainsResult
+                        else if binaryResult <> null then binaryResult
+                        else nullableEqualsResult,
+                    finalResult = if isUnaryNot and baseResult <> null then InvertOperator(baseResult) else baseResult
+                in
+                    finalResult),
+
+            notInBranches = List.Select(parsedBranches, each _ <> null and _[Operator]? = "NOT IN"),
+            nullBranches = List.Select(parsedBranches, each _ <> null and _[Operator]? = "IS NULL"),
+            isNotInPattern = List.Count(notInBranches) = 1 and List.Count(nullBranches) >= 0 and
+                List.Count(notInBranches) + List.Count(nullBranches) = List.Count(parsedBranches),
+
+            notEqualsBranches = List.Select(parsedBranches, each _ <> null and _[Operator]? = "<>"),
+            isNotEqualsPattern = List.Count(notEqualsBranches) = 1 and List.Count(nullBranches) >= 0 and
+                List.Count(notEqualsBranches) + List.Count(nullBranches) = List.Count(parsedBranches),
+
+            validBranches = List.Select(parsedBranches, each _ <> null and _[Operator]? = "="),
+            allValid = List.Count(validBranches) = List.Count(orBranches) and List.Count(validBranches) > 0,
+            columns = if allValid then List.Distinct(List.Transform(validBranches, each _[Column])) else {},
+            sameColumn = List.Count(columns) = 1,
+            values = if sameColumn then List.Transform(validBranches, each _[Value]) else {}
+        in
+            if isNotInPattern then notInBranches{0}
+            else if isNotEqualsPattern then notEqualsBranches{0}
+            else if allValid and sameColumn then
+                [Column = columns{0}, Operator = "IN", Value = values]
+            else null,
+
+    // =========================================================================
+    // HELPER: Flatten AND expressions into list of nodes
+    // =========================================================================
+    FlattenAnd = (node as nullable record) as list =>
+        if node = null then {}
+        else if node[Kind]? = "Binary" and node[Operator]? = "And" then
+            List.Combine({@FlattenAnd(node[Left]?), @FlattenAnd(node[Right]?)})
+        else {node},
+
+    // =========================================================================
+    // HELPER: Detect BETWEEN patterns
+    // =========================================================================
+    DetectBetween = (conditions as list) as list =>
+        let
+            validConds = List.Select(conditions, each _ <> null and _[Ignore]? <> true),
+            columnNames = List.Distinct(List.Transform(validConds, each _[Column]?)),
+            processColumn = (col) =>
+                let
+                    colConds = List.Select(validConds, each _[Column]? = col),
+                    gteq = List.First(List.Select(colConds, each _[Operator]? = ">="), null),
+                    lteq = List.First(List.Select(colConds, each _[Operator]? = "<="), null),
+                    hasBetween = gteq <> null and lteq <> null,
+                    betweenCond = if hasBetween then
+                        [Column = col, Operator = "BETWEEN", Value = [Start = gteq[Value], End = lteq[Value]]]
+                    else null,
+                    otherConds = if hasBetween then
+                        List.Select(colConds, each _[Operator]? <> ">=" and _[Operator]? <> "<=")
+                    else colConds
+                in
+                    if hasBetween then List.Combine({{betweenCond}, otherConds}) else otherConds,
+            optimized = List.Combine(List.Transform(columnNames, each processColumn(_))),
+            ignoredConds = List.Select(conditions, each _ <> null and _[Ignore]? = true)
+        in
+            List.Combine({optimized, ignoredConds}),
+
+    // =========================================================================
+    // MAIN: Parse a filter expression into SQL conditions
+    // Returns: [Conditions = list, CanFold = logical, AllIgnored = logical, ErrorCondition = nullable record]
+    // =========================================================================
+    ParseFilterExpression = (selector as function, escapeIdentifier as function, formatSqlValue as function) as record =>
+        let
+            // Get the AST from the filter expression
+            exprAst = try RowExpression.From(selector) otherwise null,
+
+            // Helper: Parse a node - handles Unary, Binary comparisons, OR->IN, and List.Contains
+            ParseNode = (node) =>
+                let
+                    kind = if node <> null then node[Kind]? else null,
+                    op = if kind = "Binary" then node[Operator]? else null,
+                    unaryOp = if kind = "Unary" then node[Operator]? else null,
+
+                    innerResult = if kind = "Unary" then @ParseNode(node[Expression]?) else null,
+                    unaryResult = if kind = "Unary" and unaryOp = "Not" then InvertOperator(innerResult)
+                        else innerResult,
+
+                    orAsIn = if kind = "Binary" and op = "Or" then ParseOrAsIn(node) else null,
+                    textTransform = if kind = "Binary" and op <> "Or" then ParseTextTransformComparison(node, escapeIdentifier, formatSqlValue) else null,
+                    comparison = if kind = "Binary" and op <> "Or" and textTransform = null then ParseComparison(node) else null,
+                    listContains = if kind = "Invocation" then ParseListContains(node) else null,
+                    textFunction = if kind = "Invocation" and listContains = null then ParseTextFunction(node, escapeIdentifier, formatSqlValue) else null,
+                    nullableEquals = if kind = "Invocation" and listContains = null and textFunction = null then ParseValueNullableEquals(node) else null
+                in
+                    if unaryResult <> null then unaryResult
+                    else if orAsIn <> null then orAsIn
+                    else if textTransform <> null then textTransform
+                    else if comparison <> null then comparison
+                    else if listContains <> null then listContains
+                    else if textFunction <> null then textFunction
+                    else if nullableEquals <> null then nullableEquals
+                    else null,
+
+            // Flatten the AST (handles single conditions and ANDs)
+            flatNodes = FlattenAnd(exprAst),
+
+            // Parse each node into a condition
+            parsedConditions = List.Transform(flatNodes, each ParseNode(_)),
+
+            // Apply BETWEEN optimization
+            optimizedConditions = DetectBetween(parsedConditions),
+
+            // Separate conditions by type
+            realConditions = List.Select(optimizedConditions, each _ <> null and _[Ignore]? <> true and _[Error]? <> true and (_[Column]? <> null or _[SqlExpression]? <> null)),
+            ignoredConditions = List.Select(optimizedConditions, each _ <> null and _[Ignore]? = true),
+            errorConditions = List.Select(parsedConditions, each _ <> null and _[Error]? = true),
+            failedCount = List.Count(List.Select(parsedConditions, each _ = null)),
+
+            hasHelpfulError = List.Count(errorConditions) > 0,
+            firstError = if hasHelpfulError then List.First(errorConditions) else null,
+
+            canFold = failedCount = 0 and not hasHelpfulError,
+            allIgnored = List.Count(ignoredConditions) > 0 and List.Count(realConditions) = 0
+        in
+            [
+                Conditions = realConditions,
+                CanFold = canFold,
+                AllIgnored = allIgnored,
+                FailedCount = failedCount,
+                IgnoredCount = List.Count(ignoredConditions),
+                ErrorCondition = firstError,
+                RawAST = exprAst,
+                ParsedConditions = parsedConditions
+            ]
+in
+    [
+        ParseFilterExpression = ParseFilterExpression,
+        // Export helpers for testing/debugging
+        MapOperator = MapOperator,
+        StripPrefix = StripPrefix,
+        IsPowerBIAlias = IsPowerBIAlias,
+        FlattenOr = FlattenOr,
+        FlattenAnd = FlattenAnd,
+        InvertOperator = InvertOperator
+    ]

@@ -1,0 +1,924 @@
+// SqlGenerator.pqm - SQL Generation Helpers for Snowflake Semantic Views
+// Phase 3, 4 & 5: Query Folding, Data Manipulation, and Advanced Features
+//
+// This module provides:
+// - Date function folding (Date.StartOfYear, Date.AddMonths, etc.) - Phase 3.2
+// - Text function folding (Text.Middle, Text.From, etc.) - Phase 3.3
+// - Type conversion folding (Int64.From, Date.From, etc.) - Phase 3.4
+// - Duration function folding (Duration.Days, Duration.TotalHours, etc.) - Phase 3.5
+// - Aggregation function folding (List.Sum, List.Average, etc.) - Phase 3.6
+// - Schema/Table metadata operations (SHOW, DESCRIBE, etc.) - Phase 4.1
+// - Navigation property helpers (relationships, foreign keys) - Phase 4.2
+// - Query tagging helpers (ActivityId, Host, distributed tracing) - Phase 5.1
+//
+// SQL generation utilities for semantic view queries
+
+let
+    // =========================================================================
+    // HELPER FUNCTIONS
+    // =========================================================================
+
+    // Escape identifier with double quotes (Snowflake standard)
+    EscapeIdentifier = (name as text) as text =>
+        """" & Text.Replace(name, """", """""") & """",
+
+    // Escape string literal with single quotes
+    EscapeLiteral = (value as text) as text =>
+        "'" & Text.Replace(value, "'", "''") & "'",
+
+    // Format number for SQL
+    FormatNumber = (value as number) as text =>
+        Number.ToText(value),
+
+    // =========================================================================
+    // DATE FUNCTION HELPERS (Phase 3.2)
+    // =========================================================================
+
+    // DATE_TRUNC helper for Date.StartOf* functions
+    DateTruncSQL = (datePart as text, columnName as text) as text =>
+        "DATE_TRUNC('" & datePart & "', " & EscapeIdentifier(columnName) & ")",
+
+    // DATEADD helper for Date.Add* functions
+    DateAddSQL = (datePart as text, columnName as text, count as number) as text =>
+        "DATEADD('" & datePart & "', " & FormatNumber(count) & ", " & EscapeIdentifier(columnName) & ")",
+
+    // Date.EndOf* helper
+    DateEndOfSQL = (datePart as text, columnName as text) as text =>
+        let
+            nextPart = if datePart = "year" then "year"
+                else if datePart = "quarter" then "quarter"
+                else if datePart = "month" then "month"
+                else if datePart = "week" then "week"
+                else "day",
+            truncated = "DATE_TRUNC('" & datePart & "', " & EscapeIdentifier(columnName) & ")",
+            result = "DATEADD('" & nextPart & "', 1, " & truncated & ") - INTERVAL '1 day'"
+        in
+            result,
+
+    // =========================================================================
+    // DATE FUNCTION MAPPINGS (Phase 3.2 - 22 functions)
+    // =========================================================================
+
+    // Date.StartOf* functions -> DATE_TRUNC
+    DateStartOfYear = (columnName as text) => DateTruncSQL("year", columnName),
+    DateStartOfQuarter = (columnName as text) => DateTruncSQL("quarter", columnName),
+    DateStartOfMonth = (columnName as text) => DateTruncSQL("month", columnName),
+    DateStartOfWeek = (columnName as text) =>
+        "DATE_TRUNC('week', " & EscapeIdentifier(columnName) & ") - INTERVAL '1 day'",
+    DateStartOfDay = (columnName as text) => DateTruncSQL("day", columnName),
+
+    // Date.EndOf* functions -> DATE_TRUNC + arithmetic
+    DateEndOfYear = (columnName as text) => DateEndOfSQL("year", columnName),
+    DateEndOfQuarter = (columnName as text) => DateEndOfSQL("quarter", columnName),
+    DateEndOfMonth = (columnName as text) => DateEndOfSQL("month", columnName),
+    DateEndOfWeek = (columnName as text) =>
+        "DATE_TRUNC('week', " & EscapeIdentifier(columnName) & ") + INTERVAL '5 days'",
+    DateEndOfDay = (columnName as text) =>
+        "DATE_TRUNC('day', " & EscapeIdentifier(columnName) & ") + INTERVAL '1 day' - INTERVAL '1 second'",
+
+    // Date.Add* functions -> DATEADD
+    DateAddYears = (columnName as text, count as number) => DateAddSQL("year", columnName, count),
+    DateAddQuarters = (columnName as text, count as number) => DateAddSQL("quarter", columnName, count),
+    DateAddMonths = (columnName as text, count as number) => DateAddSQL("month", columnName, count),
+    DateAddWeeks = (columnName as text, count as number) => DateAddSQL("week", columnName, count),
+    DateAddDays = (columnName as text, count as number) => DateAddSQL("day", columnName, count),
+
+    // Date extraction functions
+    DateYear = (columnName as text) => "YEAR(" & EscapeIdentifier(columnName) & ")",
+    DateMonth = (columnName as text) => "MONTH(" & EscapeIdentifier(columnName) & ")",
+    DateDay = (columnName as text) => "DAY(" & EscapeIdentifier(columnName) & ")",
+    DateQuarter = (columnName as text) => "QUARTER(" & EscapeIdentifier(columnName) & ")",
+    DateWeekOfYear = (columnName as text) => "WEEKOFYEAR(" & EscapeIdentifier(columnName) & ")",
+    DateDayOfWeek = (columnName as text) => "DAYOFWEEK(" & EscapeIdentifier(columnName) & ")",
+    DateDayOfYear = (columnName as text) => "DAYOFYEAR(" & EscapeIdentifier(columnName) & ")",
+
+    // =========================================================================
+    // TEXT FUNCTION MAPPINGS (Phase 3.3 - 18 functions)
+    // =========================================================================
+
+    // Text.Middle -> SUBSTRING (M uses 0-based index, SQL uses 1-based)
+    // M: Text.Middle("hello", 1, 3) = "ell" -> SQL: SUBSTRING(col, 2, 3)
+    TextMiddle = (columnName as text, start as number, optional length as number) =>
+        if length = null then
+            "SUBSTRING(" & EscapeIdentifier(columnName) & ", " & FormatNumber(start + 1) & ")"
+        else
+            "SUBSTRING(" & EscapeIdentifier(columnName) & ", " & FormatNumber(start + 1) & ", " & FormatNumber(length) & ")",
+
+    // Text.Start -> LEFT
+    // M: Text.Start("hello", 3) = "hel" -> SQL: LEFT(col, 3)
+    TextStart = (columnName as text, count as number) =>
+        "LEFT(" & EscapeIdentifier(columnName) & ", " & FormatNumber(count) & ")",
+
+    // Text.End -> RIGHT
+    // M: Text.End("hello", 3) = "llo" -> SQL: RIGHT(col, 3)
+    TextEnd = (columnName as text, count as number) =>
+        "RIGHT(" & EscapeIdentifier(columnName) & ", " & FormatNumber(count) & ")",
+
+    // Text.From -> TO_VARCHAR (convert any type to text)
+    TextFrom = (columnName as text) => "TO_VARCHAR(" & EscapeIdentifier(columnName) & ")",
+
+    // Text.Upper -> UPPER
+    TextUpper = (columnName as text) => "UPPER(" & EscapeIdentifier(columnName) & ")",
+
+    // Text.Lower -> LOWER
+    TextLower = (columnName as text) => "LOWER(" & EscapeIdentifier(columnName) & ")",
+
+    // Text.Trim -> TRIM (removes leading and trailing whitespace)
+    TextTrim = (columnName as text) => "TRIM(" & EscapeIdentifier(columnName) & ")",
+
+    // Text.TrimStart -> LTRIM
+    TextTrimStart = (columnName as text) => "LTRIM(" & EscapeIdentifier(columnName) & ")",
+
+    // Text.TrimEnd -> RTRIM
+    TextTrimEnd = (columnName as text) => "RTRIM(" & EscapeIdentifier(columnName) & ")",
+
+    // Text.Length -> LENGTH
+    TextLength = (columnName as text) => "LENGTH(" & EscapeIdentifier(columnName) & ")",
+
+    // Text.PositionOf -> POSITION (M returns 0-based, SQL returns 1-based)
+    // M: Text.PositionOf("hello", "l") = 2 -> SQL: POSITION('l' IN col) - 1
+    TextPositionOf = (columnName as text, substring as text) =>
+        "POSITION(" & EscapeLiteral(substring) & " IN " & EscapeIdentifier(columnName) & ") - 1",
+
+    // Text.Replace -> REPLACE
+    // M: Text.Replace("hello", "l", "x") = "hexxo" -> SQL: REPLACE(col, 'l', 'x')
+    TextReplace = (columnName as text, oldText as text, newText as text) =>
+        "REPLACE(" & EscapeIdentifier(columnName) & ", " & EscapeLiteral(oldText) & ", " & EscapeLiteral(newText) & ")",
+
+    // Text.Reverse -> REVERSE
+    TextReverse = (columnName as text) => "REVERSE(" & EscapeIdentifier(columnName) & ")",
+
+    // Text.PadStart -> LPAD
+    // M: Text.PadStart("42", 5, "0") = "00042" -> SQL: LPAD(col, 5, '0')
+    TextPadStart = (columnName as text, length as number, optional padChar as text) =>
+        let
+            pad = if padChar = null then "' '" else EscapeLiteral(padChar)
+        in
+            "LPAD(" & EscapeIdentifier(columnName) & ", " & FormatNumber(length) & ", " & pad & ")",
+
+    // Text.PadEnd -> RPAD
+    TextPadEnd = (columnName as text, length as number, optional padChar as text) =>
+        let
+            pad = if padChar = null then "' '" else EscapeLiteral(padChar)
+        in
+            "RPAD(" & EscapeIdentifier(columnName) & ", " & FormatNumber(length) & ", " & pad & ")",
+
+    // Text.Contains -> CONTAINS or LIKE
+    // M: Text.Contains("hello", "ell") = true -> SQL: col LIKE '%ell%'
+    TextContains = (columnName as text, substring as text) =>
+        EscapeIdentifier(columnName) & " LIKE '%" & Text.Replace(Text.Replace(substring, "'", "''"), "%", "\%") & "%'",
+
+    // Text.StartsWith -> LEFT comparison or LIKE
+    // M: Text.StartsWith("hello", "he") = true -> SQL: col LIKE 'he%'
+    TextStartsWith = (columnName as text, prefix as text) =>
+        EscapeIdentifier(columnName) & " LIKE '" & Text.Replace(Text.Replace(prefix, "'", "''"), "%", "\%") & "%'",
+
+    // Text.EndsWith -> RIGHT comparison or LIKE
+    // M: Text.EndsWith("hello", "lo") = true -> SQL: col LIKE '%lo'
+    TextEndsWith = (columnName as text, suffix as text) =>
+        EscapeIdentifier(columnName) & " LIKE '%" & Text.Replace(Text.Replace(suffix, "'", "''"), "%", "\%") & "'",
+
+    // Character.ToNumber -> UNICODE (returns code point of first char)
+    CharacterToNumber = (columnName as text) => "UNICODE(" & EscapeIdentifier(columnName) & ")",
+
+    // Character.FromNumber -> CHR (convert code point to char)
+    CharacterFromNumber = (columnName as text) => "CHR(" & EscapeIdentifier(columnName) & ")",
+
+    // =========================================================================
+    // TYPE CONVERSION MAPPINGS (Phase 3.4 - 15 functions)
+    // =========================================================================
+
+    // Integer conversions
+    Int32From = (columnName as text) => "TO_NUMBER(" & EscapeIdentifier(columnName) & ")",
+    Int64From = (columnName as text) => "TO_NUMBER(" & EscapeIdentifier(columnName) & ")",
+    NumberFrom = (columnName as text) => "TO_NUMBER(" & EscapeIdentifier(columnName) & ")",
+
+    // Floating point conversions
+    DoubleFrom = (columnName as text) => "CAST(" & EscapeIdentifier(columnName) & " AS DOUBLE)",
+    SingleFrom = (columnName as text) => "CAST(" & EscapeIdentifier(columnName) & " AS FLOAT)",
+    DecimalFrom = (columnName as text) => "CAST(" & EscapeIdentifier(columnName) & " AS DECIMAL)",
+
+    // Number functions
+    NumberRound = (columnName as text, optional digits as number) =>
+        if digits = null then
+            "ROUND(" & EscapeIdentifier(columnName) & ")"
+        else
+            "ROUND(" & EscapeIdentifier(columnName) & ", " & FormatNumber(digits) & ")",
+
+    NumberRoundDown = (columnName as text) => "FLOOR(" & EscapeIdentifier(columnName) & ")",
+    NumberRoundUp = (columnName as text) => "CEILING(" & EscapeIdentifier(columnName) & ")",
+    NumberAbs = (columnName as text) => "ABS(" & EscapeIdentifier(columnName) & ")",
+    NumberSign = (columnName as text) => "SIGN(" & EscapeIdentifier(columnName) & ")",
+    NumberSqrt = (columnName as text) => "SQRT(" & EscapeIdentifier(columnName) & ")",
+    NumberPower = (columnName as text, exponent as number) =>
+        "POWER(" & EscapeIdentifier(columnName) & ", " & FormatNumber(exponent) & ")",
+    NumberMod = (columnName as text, divisor as number) =>
+        "MOD(" & EscapeIdentifier(columnName) & ", " & FormatNumber(divisor) & ")",
+
+    // Date/Time conversions
+    DateFrom = (columnName as text) => "CAST(" & EscapeIdentifier(columnName) & " AS DATE)",
+    DateTimeFrom = (columnName as text) => "CAST(" & EscapeIdentifier(columnName) & " AS TIMESTAMP)",
+    TimeFrom = (columnName as text) => "CAST(" & EscapeIdentifier(columnName) & " AS TIME)",
+    DateTimeZoneFrom = (columnName as text) => "CAST(" & EscapeIdentifier(columnName) & " AS TIMESTAMP_TZ)",
+
+    // Logical conversions
+    // M: Logical.From(1) = true -> SQL: CASE WHEN col <> 0 THEN TRUE ELSE FALSE END
+    LogicalFrom = (columnName as text) =>
+        "CASE WHEN " & EscapeIdentifier(columnName) & " <> 0 AND " & EscapeIdentifier(columnName) & " IS NOT NULL THEN TRUE ELSE FALSE END",
+
+    // Logical.ToText -> CASE
+    LogicalToText = (columnName as text) =>
+        "CASE WHEN " & EscapeIdentifier(columnName) & " THEN 'true' ELSE 'false' END",
+
+    // =========================================================================
+    // DURATION FUNCTION MAPPINGS (Phase 3.5 - 10 functions)
+    // =========================================================================
+    // M Duration is stored as ticks (100 nanosecond intervals)
+    // In Snowflake, we work with intervals or numeric representations
+
+    // Ticks constants (100 nanosecond intervals)
+    TicksPerSecond = 10000000,
+    TicksPerMinute = 600000000,
+    TicksPerHour = 36000000000,
+    TicksPerDay = 864000000000,
+
+    // Duration.Days -> Extract whole days from duration (ticks / ticksperday)
+    // For Snowflake INTERVAL types, use EXTRACT or DATEDIFF
+    DurationDays = (columnName as text) =>
+        "FLOOR(" & EscapeIdentifier(columnName) & " / " & FormatNumber(TicksPerDay) & ")",
+
+    // Duration.Hours -> Extract hours component (0-23)
+    DurationHours = (columnName as text) =>
+        "MOD(FLOOR(" & EscapeIdentifier(columnName) & " / " & FormatNumber(TicksPerHour) & "), 24)",
+
+    // Duration.Minutes -> Extract minutes component (0-59)
+    DurationMinutes = (columnName as text) =>
+        "MOD(FLOOR(" & EscapeIdentifier(columnName) & " / " & FormatNumber(TicksPerMinute) & "), 60)",
+
+    // Duration.Seconds -> Extract seconds component (0-59)
+    DurationSeconds = (columnName as text) =>
+        "MOD(FLOOR(" & EscapeIdentifier(columnName) & " / " & FormatNumber(TicksPerSecond) & "), 60)",
+
+    // Duration.TotalDays -> Total days as decimal
+    DurationTotalDays = (columnName as text) =>
+        "CAST(" & EscapeIdentifier(columnName) & " / " & FormatNumber(TicksPerDay) & " AS DOUBLE)",
+
+    // Duration.TotalHours -> Total hours as decimal
+    DurationTotalHours = (columnName as text) =>
+        "CAST(" & EscapeIdentifier(columnName) & " / " & FormatNumber(TicksPerHour) & " AS DOUBLE)",
+
+    // Duration.TotalMinutes -> Total minutes as decimal
+    DurationTotalMinutes = (columnName as text) =>
+        "CAST(" & EscapeIdentifier(columnName) & " / " & FormatNumber(TicksPerMinute) & " AS DOUBLE)",
+
+    // Duration.TotalSeconds -> Total seconds as decimal
+    DurationTotalSeconds = (columnName as text) =>
+        "CAST(" & EscapeIdentifier(columnName) & " / " & FormatNumber(TicksPerSecond) & " AS DOUBLE)",
+
+    // Duration.FromDays -> Create duration (ticks) from days
+    DurationFromDays = (columnName as text) =>
+        "CAST(" & EscapeIdentifier(columnName) & " * " & FormatNumber(TicksPerDay) & " AS BIGINT)",
+
+    // Duration.From -> Convert to duration (pass-through for numeric, parse for text)
+    DurationFrom = (columnName as text) =>
+        "CAST(" & EscapeIdentifier(columnName) & " AS BIGINT)",
+
+    // =========================================================================
+    // AGGREGATION FUNCTION MAPPINGS (Phase 3.6 - 12 functions)
+    // =========================================================================
+    // These generate SQL aggregation expressions for use in GROUP BY queries
+
+    // List.Sum -> SUM with precision handling
+    // M: List.Sum({1, 2, 3}) = 6 -> SQL: SUM(col)
+    ListSum = (columnName as text) =>
+        "SUM(" & EscapeIdentifier(columnName) & ")",
+
+    // List.Average -> AVG with type preservation
+    // M: List.Average({1, 2, 3}) = 2 -> SQL: AVG(col)
+    ListAverage = (columnName as text) =>
+        "AVG(" & EscapeIdentifier(columnName) & ")",
+
+    // List.Min -> MIN
+    // M: List.Min({1, 2, 3}) = 1 -> SQL: MIN(col)
+    ListMin = (columnName as text) =>
+        "MIN(" & EscapeIdentifier(columnName) & ")",
+
+    // List.Max -> MAX
+    // M: List.Max({1, 2, 3}) = 3 -> SQL: MAX(col)
+    ListMax = (columnName as text) =>
+        "MAX(" & EscapeIdentifier(columnName) & ")",
+
+    // List.Count -> COUNT (includes nulls in M, but SQL COUNT excludes nulls)
+    // For total count including nulls, we use COUNT(*)
+    ListCount = (columnName as text) =>
+        "COUNT(" & EscapeIdentifier(columnName) & ")",
+
+    // List.NonNullCount -> COUNT (excludes nulls - standard SQL behavior)
+    ListNonNullCount = (columnName as text) =>
+        "COUNT(" & EscapeIdentifier(columnName) & ")",
+
+    // List.StandardDeviation -> STDDEV (sample standard deviation)
+    ListStandardDeviation = (columnName as text) =>
+        "STDDEV(" & EscapeIdentifier(columnName) & ")",
+
+    // List.Median -> MEDIAN (Snowflake supports this directly)
+    ListMedian = (columnName as text) =>
+        "MEDIAN(" & EscapeIdentifier(columnName) & ")",
+
+    // Table.RowCount -> COUNT(*)
+    TableRowCount = (columnName as text) =>
+        "COUNT(*)",
+
+    // Table.ApproximateRowCount -> APPROX_COUNT_DISTINCT (for large datasets)
+    ApproxDistinctCount = (columnName as text) =>
+        "APPROX_COUNT_DISTINCT(" & EscapeIdentifier(columnName) & ")",
+
+    // List.Distinct count -> COUNT(DISTINCT col)
+    ListDistinctCount = (columnName as text) =>
+        "COUNT(DISTINCT " & EscapeIdentifier(columnName) & ")",
+
+    // Variance -> VARIANCE
+    ListVariance = (columnName as text) =>
+        "VARIANCE(" & EscapeIdentifier(columnName) & ")",
+
+    // =========================================================================
+    // SCHEMA/TABLE METADATA OPERATIONS (Phase 4.1)
+    // =========================================================================
+    // SQL generators for schema and table metadata discovery
+
+    // Format a qualified table name (database.schema.table)
+    FormatQualifiedName = (database as text, schema as text, table as text) as text =>
+        EscapeIdentifier(database) & "." & EscapeIdentifier(schema) & "." & EscapeIdentifier(table),
+
+    // Format a qualified schema name (database.schema)
+    FormatQualifiedSchema = (database as text, schema as text) as text =>
+        EscapeIdentifier(database) & "." & EscapeIdentifier(schema),
+
+    // SHOW PRIMARY KEYS IN TABLE <qualified_name>
+    ShowPrimaryKeys = (database as text, schema as text, table as text) as text =>
+        "SHOW PRIMARY KEYS IN TABLE " & FormatQualifiedName(database, schema, table),
+
+    // SHOW IMPORTED KEYS IN TABLE <qualified_name> (foreign keys pointing INTO this table)
+    ShowImportedKeys = (database as text, schema as text, table as text) as text =>
+        "SHOW IMPORTED KEYS IN TABLE " & FormatQualifiedName(database, schema, table),
+
+    // SHOW EXPORTED KEYS IN TABLE <qualified_name> (foreign keys pointing FROM this table)
+    ShowExportedKeys = (database as text, schema as text, table as text) as text =>
+        "SHOW EXPORTED KEYS IN TABLE " & FormatQualifiedName(database, schema, table),
+
+    // SHOW COLUMNS IN TABLE <qualified_name>
+    ShowColumns = (database as text, schema as text, table as text) as text =>
+        "SHOW COLUMNS IN TABLE " & FormatQualifiedName(database, schema, table),
+
+    // DESCRIBE TABLE <qualified_name>
+    DescribeTable = (database as text, schema as text, table as text) as text =>
+        "DESCRIBE TABLE " & FormatQualifiedName(database, schema, table),
+
+    // SHOW TABLES IN SCHEMA <qualified_schema>
+    ShowTables = (database as text, schema as text) as text =>
+        "SHOW TABLES IN SCHEMA " & FormatQualifiedSchema(database, schema),
+
+    // SHOW VIEWS IN SCHEMA <qualified_schema>
+    ShowViews = (database as text, schema as text) as text =>
+        "SHOW VIEWS IN SCHEMA " & FormatQualifiedSchema(database, schema),
+
+    // SHOW SCHEMAS IN DATABASE <database>
+    ShowSchemas = (database as text) as text =>
+        "SHOW SCHEMAS IN DATABASE " & EscapeIdentifier(database),
+
+    // SHOW DATABASES
+    ShowDatabases = () as text =>
+        "SHOW DATABASES",
+
+    // Get table row count estimate (from information_schema)
+    GetTableRowCountEstimate = (database as text, schema as text, table as text) as text =>
+        "SELECT ROW_COUNT FROM " & EscapeIdentifier(database) & ".INFORMATION_SCHEMA.TABLES " &
+        "WHERE TABLE_SCHEMA = " & EscapeLiteral(schema) & " AND TABLE_NAME = " & EscapeLiteral(table),
+
+    // Get column metadata from information_schema
+    GetColumnMetadata = (database as text, schema as text, table as text) as text =>
+        "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, ORDINAL_POSITION " &
+        "FROM " & EscapeIdentifier(database) & ".INFORMATION_SCHEMA.COLUMNS " &
+        "WHERE TABLE_SCHEMA = " & EscapeLiteral(schema) & " AND TABLE_NAME = " & EscapeLiteral(table) & " " &
+        "ORDER BY ORDINAL_POSITION",
+
+    // =========================================================================
+    // NAVIGATION PROPERTY HELPERS (Phase 4.2)
+    // =========================================================================
+    // Helpers for building navigation paths and relationship queries
+
+    // Build a navigation path array from components
+    BuildNavigationPath = (database as text, schema as text, table as text) as text =>
+        "[" & EscapeLiteral(database) & ", " & EscapeLiteral(schema) & ", " & EscapeLiteral(table) & "]",
+
+    // Get foreign key constraint info for relationships
+    GetForeignKeyInfo = (database as text, schema as text, table as text) as text =>
+        "SELECT " &
+            "FK.CONSTRAINT_NAME, " &
+            "FK.TABLE_NAME AS FK_TABLE, " &
+            "FK.COLUMN_NAME AS FK_COLUMN, " &
+            "PK.TABLE_NAME AS PK_TABLE, " &
+            "PK.COLUMN_NAME AS PK_COLUMN " &
+        "FROM " & EscapeIdentifier(database) & ".INFORMATION_SCHEMA.KEY_COLUMN_USAGE FK " &
+        "JOIN " & EscapeIdentifier(database) & ".INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS RC " &
+            "ON FK.CONSTRAINT_NAME = RC.CONSTRAINT_NAME AND FK.CONSTRAINT_SCHEMA = RC.CONSTRAINT_SCHEMA " &
+        "JOIN " & EscapeIdentifier(database) & ".INFORMATION_SCHEMA.KEY_COLUMN_USAGE PK " &
+            "ON RC.UNIQUE_CONSTRAINT_NAME = PK.CONSTRAINT_NAME AND RC.UNIQUE_CONSTRAINT_SCHEMA = PK.CONSTRAINT_SCHEMA " &
+        "WHERE FK.TABLE_SCHEMA = " & EscapeLiteral(schema) & " AND FK.TABLE_NAME = " & EscapeLiteral(table),
+
+    // Get unique constraints for a table
+    GetUniqueConstraints = (database as text, schema as text, table as text) as text =>
+        "SELECT CONSTRAINT_NAME, COLUMN_NAME " &
+        "FROM " & EscapeIdentifier(database) & ".INFORMATION_SCHEMA.TABLE_CONSTRAINTS TC " &
+        "JOIN " & EscapeIdentifier(database) & ".INFORMATION_SCHEMA.KEY_COLUMN_USAGE KCU " &
+            "ON TC.CONSTRAINT_NAME = KCU.CONSTRAINT_NAME AND TC.TABLE_SCHEMA = KCU.TABLE_SCHEMA " &
+        "WHERE TC.TABLE_SCHEMA = " & EscapeLiteral(schema) & " AND TC.TABLE_NAME = " & EscapeLiteral(table) & " " &
+        "AND TC.CONSTRAINT_TYPE IN ('PRIMARY KEY', 'UNIQUE')",
+
+    // =========================================================================
+    // QUERY TAGGING HELPERS (Phase 5.1)
+    // =========================================================================
+    // Functions for generating query tags for Snowflake query tracking
+
+    // Infer query type from SQL statement
+    InferQueryType = (sql as text) as text =>
+        let
+            upperSql = Text.Upper(Text.Start(sql, 50)),
+            queryType =
+                if Text.StartsWith(upperSql, "SHOW DATABASE") or Text.StartsWith(upperSql, "SHOW SCHEMA")
+                   or Text.StartsWith(upperSql, "SHOW TABLE") or Text.StartsWith(upperSql, "SHOW VIEW")
+                   or Text.StartsWith(upperSql, "SHOW SEMANTIC VIEW") then "Navigation"
+                else if Text.StartsWith(upperSql, "DESCRIBE") or Text.StartsWith(upperSql, "SHOW SEMANTIC DIM")
+                   or Text.StartsWith(upperSql, "SHOW SEMANTIC MET") or Text.StartsWith(upperSql, "SHOW SEMANTIC FAC") then "Metadata"
+                else if Text.Contains(upperSql, "AGG(") then "SemanticView"
+                else "Table"
+        in
+            queryType,
+
+    // Generate ALTER SESSION SET QUERY_TAG statement
+    MakeQueryTagStatement = (tagJson as text) as text =>
+        "ALTER SESSION SET QUERY_TAG = " & EscapeLiteral(tagJson),
+
+    // Build a query tag record (returns M record, caller converts to JSON)
+    BuildQueryTagRecord = (
+        connector as text,
+        version as text,
+        queryType as text,
+        optional activityId as text,
+        optional host as text,
+        optional hostContext as text
+    ) as record =>
+        [
+            Connector = connector,
+            Version = version,
+            PowerQuery = true,
+            QueryType = queryType,
+            ActivityId = activityId,
+            Host = host ?? "",
+            HostContext = hostContext ?? ""
+        ],
+
+    // =========================================================================
+    // DISTRIBUTED TRACING HELPERS (Phase 5.2)
+    // =========================================================================
+    // W3C Trace Context compliant traceparent header generation
+    // Format: {version}-{trace-id}-{parent-id}-{trace-flags}
+    // See: https://www.w3.org/TR/trace-context/
+
+    // Generate random hex string of specified length (for span ID)
+    // Uses a simple deterministic approach based on current time
+    GenerateRandomHex = (length as number) as text =>
+        let
+            // Use current time components to generate pseudo-random hex
+            now = DateTime.LocalNow(),
+            // Calculate seed from hours, minutes, seconds (milliseconds approximated from seconds fraction)
+            timeComponent = DateTime.Time(now),
+            seed = Time.Hour(timeComponent) * 3600000 +
+                   Time.Minute(timeComponent) * 60000 +
+                   Number.RoundDown(Time.Second(timeComponent) * 1000),
+
+            // Convert to hex and pad/truncate to desired length
+            hexChars = "0123456789abcdef",
+
+            // Generate hex digits using modular arithmetic
+            GenerateHexDigit = (n as number, pos as number) as text =>
+                Text.At(hexChars, Number.Mod(Number.RoundDown(n / Number.Power(16, pos)), 16)),
+
+            // Build hex string
+            hexString = Text.Combine(List.Transform({0..length-1}, each GenerateHexDigit(seed * (_ + 1), _)))
+        in
+            Text.Start(hexString, length),
+
+    // Clean an activity ID by removing dashes and ensuring 32 hex characters
+    CleanActivityId = (activityId as text) as text =>
+        let
+            cleaned = Text.Replace(activityId, "-", ""),
+            // Ensure exactly 32 characters (pad with zeros if needed)
+            padded = if Text.Length(cleaned) < 32
+                     then cleaned & Text.Repeat("0", 32 - Text.Length(cleaned))
+                     else Text.Start(cleaned, 32)
+        in
+            Text.Lower(padded),
+
+    // Generate a W3C Trace Context traceparent header value
+    // Format: {version}-{trace-id}-{parent-id}-{trace-flags}
+    // - version: "00" (current W3C version)
+    // - trace-id: 32 hex chars (from ActivityId)
+    // - parent-id: 16 hex chars (random span ID)
+    // - trace-flags: "01" (sampled)
+    MakeTraceParentId = (activityId as text) as text =>
+        let
+            TraceVersion = "00",
+            TraceId = CleanActivityId(activityId),
+            ParentId = GenerateRandomHex(16),
+            TraceFlags = "01",
+            TraceParentId = Text.Combine({TraceVersion, TraceId, ParentId, TraceFlags}, "-")
+        in
+            TraceParentId,
+
+    // Generate a tracestate header value (vendor-specific trace data)
+    // Format: key=value,key=value
+    MakeTraceState = (connector as text, version as text) as text =>
+        "pbi=" & connector & "-" & version,
+
+    // Build complete tracing headers record for HTTP requests
+    BuildTracingHeaders = (activityId as text, connector as text, version as text) as record =>
+        [
+            traceparent = MakeTraceParentId(activityId),
+            tracestate = MakeTraceState(connector, version)
+        ],
+
+    // =========================================================================
+    // COMPLEX TYPE HELPERS (Phase 5.3)
+    // =========================================================================
+    // Helper functions for handling VARIANT, OBJECT, ARRAY, STRUCT types
+
+    // Check if a Snowflake type is a complex/semi-structured type
+    IsComplexType = (nativeTypeName as text) as logical =>
+        nativeTypeName = "VARIANT" or
+        nativeTypeName = "OBJECT" or
+        nativeTypeName = "ARRAY" or
+        nativeTypeName = "STRUCT",
+
+    // Safe JSON parser that handles nulls and errors gracefully
+    // Returns null for null/empty inputs, original value if parsing fails
+    SafeParseJson = (value as any) as any =>
+        if value = null then null
+        else if value is text and value = "" then null
+        else if value is text then try Json.Document(value) otherwise value
+        else value,
+
+    // Determine if a value looks like JSON (for VARIANT type detection)
+    LooksLikeJson = (value as text) as logical =>
+        let
+            trimmed = Text.Trim(value),
+            startsWithObject = Text.StartsWith(trimmed, "{"),
+            startsWithArray = Text.StartsWith(trimmed, "["),
+            endsWithObject = Text.EndsWith(trimmed, "}"),
+            endsWithArray = Text.EndsWith(trimmed, "]")
+        in
+            (startsWithObject and endsWithObject) or (startsWithArray and endsWithArray),
+
+    // =========================================================================
+    // ERROR HANDLING HELPERS (Phase 6)
+    // =========================================================================
+    // Helper functions for detecting and handling common Snowflake errors
+
+    // Phase 6.1: Check if error message indicates warehouse is suspended
+    IsWarehouseSuspendedError = (errorMessage as text) as logical =>
+        Text.Contains(errorMessage, "57P03") or
+        Text.Contains(Text.Lower(errorMessage), "suspended") or
+        (Text.Contains(Text.Lower(errorMessage), "warehouse") and
+         Text.Contains(Text.Lower(errorMessage), "not running")),
+
+    // Phase 6.2: OAuth token expiration error code
+    OAuthExpiredErrorCode = 390318,
+
+    // Phase 6.2: Check if error indicates OAuth token expiration
+    IsOAuthExpiredError = (errorMessage as text, optional errorCode as number) as logical =>
+        let
+            hasExpiredCode = (errorCode ?? 0) = OAuthExpiredErrorCode,
+            lowerMessage = Text.Lower(errorMessage),
+            hasExpiredMessage = Text.Contains(lowerMessage, "token") and
+                (Text.Contains(lowerMessage, "expired") or Text.Contains(lowerMessage, "invalid"))
+        in
+            hasExpiredCode or hasExpiredMessage,
+
+    // Phase 6.3: Check if server name is valid Snowflake format
+    IsValidSnowflakeServer = (server as text) as logical =>
+        let
+            lowerServer = Text.Lower(server),
+            isSnowflakeDomain = Text.EndsWith(lowerServer, ".snowflakecomputing.com") or
+                Text.EndsWith(lowerServer, ".snowflake.com"),
+            hasValidChars = not Text.Contains(server, " ") and
+                not Text.Contains(server, "?") and
+                not Text.Contains(server, "#")
+        in
+            isSnowflakeDomain and hasValidChars,
+
+    // =========================================================================
+    // FUNCTION REGISTRY
+    // =========================================================================
+    // Maps M function names to their SQL generators
+
+    FunctionRegistry = [
+        // Date.StartOf* functions (5)
+        #"Date.StartOfYear" = [Generator = DateStartOfYear, ArgCount = 1],
+        #"Date.StartOfQuarter" = [Generator = DateStartOfQuarter, ArgCount = 1],
+        #"Date.StartOfMonth" = [Generator = DateStartOfMonth, ArgCount = 1],
+        #"Date.StartOfWeek" = [Generator = DateStartOfWeek, ArgCount = 1],
+        #"Date.StartOfDay" = [Generator = DateStartOfDay, ArgCount = 1],
+
+        // Date.EndOf* functions (5)
+        #"Date.EndOfYear" = [Generator = DateEndOfYear, ArgCount = 1],
+        #"Date.EndOfQuarter" = [Generator = DateEndOfQuarter, ArgCount = 1],
+        #"Date.EndOfMonth" = [Generator = DateEndOfMonth, ArgCount = 1],
+        #"Date.EndOfWeek" = [Generator = DateEndOfWeek, ArgCount = 1],
+        #"Date.EndOfDay" = [Generator = DateEndOfDay, ArgCount = 1],
+
+        // Date.Add* functions (5)
+        #"Date.AddYears" = [Generator = DateAddYears, ArgCount = 2],
+        #"Date.AddQuarters" = [Generator = DateAddQuarters, ArgCount = 2],
+        #"Date.AddMonths" = [Generator = DateAddMonths, ArgCount = 2],
+        #"Date.AddWeeks" = [Generator = DateAddWeeks, ArgCount = 2],
+        #"Date.AddDays" = [Generator = DateAddDays, ArgCount = 2],
+
+        // Date extraction functions (7)
+        #"Date.Year" = [Generator = DateYear, ArgCount = 1],
+        #"Date.Month" = [Generator = DateMonth, ArgCount = 1],
+        #"Date.Day" = [Generator = DateDay, ArgCount = 1],
+        #"Date.QuarterOfYear" = [Generator = DateQuarter, ArgCount = 1],
+        #"Date.WeekOfYear" = [Generator = DateWeekOfYear, ArgCount = 1],
+        #"Date.DayOfWeek" = [Generator = DateDayOfWeek, ArgCount = 1],
+        #"Date.DayOfYear" = [Generator = DateDayOfYear, ArgCount = 1],
+
+        // Text functions (18)
+        #"Text.Middle" = [Generator = TextMiddle, ArgCount = 3],
+        #"Text.Start" = [Generator = TextStart, ArgCount = 2],
+        #"Text.End" = [Generator = TextEnd, ArgCount = 2],
+        #"Text.From" = [Generator = TextFrom, ArgCount = 1],
+        #"Text.Upper" = [Generator = TextUpper, ArgCount = 1],
+        #"Text.Lower" = [Generator = TextLower, ArgCount = 1],
+        #"Text.Trim" = [Generator = TextTrim, ArgCount = 1],
+        #"Text.TrimStart" = [Generator = TextTrimStart, ArgCount = 1],
+        #"Text.TrimEnd" = [Generator = TextTrimEnd, ArgCount = 1],
+        #"Text.Length" = [Generator = TextLength, ArgCount = 1],
+        #"Text.PositionOf" = [Generator = TextPositionOf, ArgCount = 2],
+        #"Text.Replace" = [Generator = TextReplace, ArgCount = 3],
+        #"Text.Reverse" = [Generator = TextReverse, ArgCount = 1],
+        #"Text.PadStart" = [Generator = TextPadStart, ArgCount = 3],
+        #"Text.PadEnd" = [Generator = TextPadEnd, ArgCount = 3],
+        #"Text.Contains" = [Generator = TextContains, ArgCount = 2],
+        #"Text.StartsWith" = [Generator = TextStartsWith, ArgCount = 2],
+        #"Text.EndsWith" = [Generator = TextEndsWith, ArgCount = 2],
+        #"Character.ToNumber" = [Generator = CharacterToNumber, ArgCount = 1],
+        #"Character.FromNumber" = [Generator = CharacterFromNumber, ArgCount = 1],
+
+        // Type conversions (15)
+        #"Int32.From" = [Generator = Int32From, ArgCount = 1],
+        #"Int64.From" = [Generator = Int64From, ArgCount = 1],
+        #"Number.From" = [Generator = NumberFrom, ArgCount = 1],
+        #"Double.From" = [Generator = DoubleFrom, ArgCount = 1],
+        #"Single.From" = [Generator = SingleFrom, ArgCount = 1],
+        #"Decimal.From" = [Generator = DecimalFrom, ArgCount = 1],
+        #"Number.Round" = [Generator = NumberRound, ArgCount = 2],
+        #"Number.RoundDown" = [Generator = NumberRoundDown, ArgCount = 1],
+        #"Number.RoundUp" = [Generator = NumberRoundUp, ArgCount = 1],
+        #"Number.Abs" = [Generator = NumberAbs, ArgCount = 1],
+        #"Number.Sign" = [Generator = NumberSign, ArgCount = 1],
+        #"Number.Sqrt" = [Generator = NumberSqrt, ArgCount = 1],
+        #"Number.Power" = [Generator = NumberPower, ArgCount = 2],
+        #"Number.Mod" = [Generator = NumberMod, ArgCount = 2],
+        #"Date.From" = [Generator = DateFrom, ArgCount = 1],
+        #"DateTime.From" = [Generator = DateTimeFrom, ArgCount = 1],
+        #"Time.From" = [Generator = TimeFrom, ArgCount = 1],
+        #"DateTimeZone.From" = [Generator = DateTimeZoneFrom, ArgCount = 1],
+        #"Logical.From" = [Generator = LogicalFrom, ArgCount = 1],
+        #"Logical.ToText" = [Generator = LogicalToText, ArgCount = 1],
+
+        // Duration functions (10) - Phase 3.5
+        #"Duration.Days" = [Generator = DurationDays, ArgCount = 1],
+        #"Duration.Hours" = [Generator = DurationHours, ArgCount = 1],
+        #"Duration.Minutes" = [Generator = DurationMinutes, ArgCount = 1],
+        #"Duration.Seconds" = [Generator = DurationSeconds, ArgCount = 1],
+        #"Duration.TotalDays" = [Generator = DurationTotalDays, ArgCount = 1],
+        #"Duration.TotalHours" = [Generator = DurationTotalHours, ArgCount = 1],
+        #"Duration.TotalMinutes" = [Generator = DurationTotalMinutes, ArgCount = 1],
+        #"Duration.TotalSeconds" = [Generator = DurationTotalSeconds, ArgCount = 1],
+        #"Duration.FromDays" = [Generator = DurationFromDays, ArgCount = 1],
+        #"Duration.From" = [Generator = DurationFrom, ArgCount = 1],
+
+        // Aggregation functions (12) - Phase 3.6
+        #"List.Sum" = [Generator = ListSum, ArgCount = 1],
+        #"List.Average" = [Generator = ListAverage, ArgCount = 1],
+        #"List.Min" = [Generator = ListMin, ArgCount = 1],
+        #"List.Max" = [Generator = ListMax, ArgCount = 1],
+        #"List.Count" = [Generator = ListCount, ArgCount = 1],
+        #"List.NonNullCount" = [Generator = ListNonNullCount, ArgCount = 1],
+        #"List.StandardDeviation" = [Generator = ListStandardDeviation, ArgCount = 1],
+        #"List.Median" = [Generator = ListMedian, ArgCount = 1],
+        #"Table.RowCount" = [Generator = TableRowCount, ArgCount = 1],
+        #"Table.ApproximateRowCount" = [Generator = ApproxDistinctCount, ArgCount = 1],
+        #"List.DistinctCount" = [Generator = ListDistinctCount, ArgCount = 1],
+        #"List.Variance" = [Generator = ListVariance, ArgCount = 1]
+    ],
+
+    // =========================================================================
+    // EXPRESSION TRANSLATION
+    // =========================================================================
+
+    IsFunctionSupported = (functionName as text) as logical =>
+        Record.HasFields(FunctionRegistry, functionName),
+
+    GetFunctionGenerator = (functionName as text) =>
+        if IsFunctionSupported(functionName) then
+            Record.Field(FunctionRegistry, functionName)
+        else
+            null,
+
+    // Translate expression record to SQL
+    TranslateExpression = (expression as record) as text =>
+        let
+            functionName = expression[Function],
+            columnName = expression[Column],
+            args = expression[Args]?,
+
+            funcInfo = GetFunctionGenerator(functionName),
+            result = if funcInfo = null then
+                EscapeIdentifier(columnName)
+            else if funcInfo[ArgCount] = 1 then
+                funcInfo[Generator](columnName)
+            else if funcInfo[ArgCount] = 2 and args <> null and List.Count(args) >= 1 then
+                funcInfo[Generator](columnName, args{0})
+            else if funcInfo[ArgCount] = 3 and args <> null and List.Count(args) >= 2 then
+                funcInfo[Generator](columnName, args{0}, args{1})
+            else
+                EscapeIdentifier(columnName)
+        in
+            result,
+
+    // Get count of supported functions
+    GetSupportedFunctionCount = () => Record.FieldCount(FunctionRegistry),
+
+    // Get list of all supported function names
+    GetSupportedFunctionNames = () => Record.FieldNames(FunctionRegistry),
+
+    // =========================================================================
+    // PUBLIC API
+    // =========================================================================
+
+    SqlGenerator = [
+        // Date functions (22)
+        DateStartOfYear = DateStartOfYear,
+        DateStartOfQuarter = DateStartOfQuarter,
+        DateStartOfMonth = DateStartOfMonth,
+        DateStartOfWeek = DateStartOfWeek,
+        DateStartOfDay = DateStartOfDay,
+        DateEndOfYear = DateEndOfYear,
+        DateEndOfQuarter = DateEndOfQuarter,
+        DateEndOfMonth = DateEndOfMonth,
+        DateEndOfWeek = DateEndOfWeek,
+        DateEndOfDay = DateEndOfDay,
+        DateAddYears = DateAddYears,
+        DateAddQuarters = DateAddQuarters,
+        DateAddMonths = DateAddMonths,
+        DateAddWeeks = DateAddWeeks,
+        DateAddDays = DateAddDays,
+        DateYear = DateYear,
+        DateMonth = DateMonth,
+        DateDay = DateDay,
+        DateQuarter = DateQuarter,
+        DateWeekOfYear = DateWeekOfYear,
+        DateDayOfWeek = DateDayOfWeek,
+        DateDayOfYear = DateDayOfYear,
+
+        // Text functions (20)
+        TextMiddle = TextMiddle,
+        TextStart = TextStart,
+        TextEnd = TextEnd,
+        TextFrom = TextFrom,
+        TextUpper = TextUpper,
+        TextLower = TextLower,
+        TextTrim = TextTrim,
+        TextTrimStart = TextTrimStart,
+        TextTrimEnd = TextTrimEnd,
+        TextLength = TextLength,
+        TextPositionOf = TextPositionOf,
+        TextReplace = TextReplace,
+        TextReverse = TextReverse,
+        TextPadStart = TextPadStart,
+        TextPadEnd = TextPadEnd,
+        TextContains = TextContains,
+        TextStartsWith = TextStartsWith,
+        TextEndsWith = TextEndsWith,
+        CharacterToNumber = CharacterToNumber,
+        CharacterFromNumber = CharacterFromNumber,
+
+        // Type conversions (20)
+        Int32From = Int32From,
+        Int64From = Int64From,
+        NumberFrom = NumberFrom,
+        DoubleFrom = DoubleFrom,
+        SingleFrom = SingleFrom,
+        DecimalFrom = DecimalFrom,
+        NumberRound = NumberRound,
+        NumberRoundDown = NumberRoundDown,
+        NumberRoundUp = NumberRoundUp,
+        NumberAbs = NumberAbs,
+        NumberSign = NumberSign,
+        NumberSqrt = NumberSqrt,
+        NumberPower = NumberPower,
+        NumberMod = NumberMod,
+        DateFrom = DateFrom,
+        DateTimeFrom = DateTimeFrom,
+        TimeFrom = TimeFrom,
+        DateTimeZoneFrom = DateTimeZoneFrom,
+        LogicalFrom = LogicalFrom,
+        LogicalToText = LogicalToText,
+
+        // Duration functions (10) - Phase 3.5
+        DurationDays = DurationDays,
+        DurationHours = DurationHours,
+        DurationMinutes = DurationMinutes,
+        DurationSeconds = DurationSeconds,
+        DurationTotalDays = DurationTotalDays,
+        DurationTotalHours = DurationTotalHours,
+        DurationTotalMinutes = DurationTotalMinutes,
+        DurationTotalSeconds = DurationTotalSeconds,
+        DurationFromDays = DurationFromDays,
+        DurationFrom = DurationFrom,
+        TicksPerSecond = TicksPerSecond,
+        TicksPerMinute = TicksPerMinute,
+        TicksPerHour = TicksPerHour,
+        TicksPerDay = TicksPerDay,
+
+        // Aggregation functions (12) - Phase 3.6
+        ListSum = ListSum,
+        ListAverage = ListAverage,
+        ListMin = ListMin,
+        ListMax = ListMax,
+        ListCount = ListCount,
+        ListNonNullCount = ListNonNullCount,
+        ListStandardDeviation = ListStandardDeviation,
+        ListMedian = ListMedian,
+        TableRowCount = TableRowCount,
+        ApproxDistinctCount = ApproxDistinctCount,
+        ListDistinctCount = ListDistinctCount,
+        ListVariance = ListVariance,
+
+        // Schema/Table Metadata Operations (15) - Phase 4.1
+        FormatQualifiedName = FormatQualifiedName,
+        FormatQualifiedSchema = FormatQualifiedSchema,
+        ShowPrimaryKeys = ShowPrimaryKeys,
+        ShowImportedKeys = ShowImportedKeys,
+        ShowExportedKeys = ShowExportedKeys,
+        ShowColumns = ShowColumns,
+        DescribeTable = DescribeTable,
+        ShowTables = ShowTables,
+        ShowViews = ShowViews,
+        ShowSchemas = ShowSchemas,
+        ShowDatabases = ShowDatabases,
+        GetTableRowCountEstimate = GetTableRowCountEstimate,
+        GetColumnMetadata = GetColumnMetadata,
+
+        // Navigation Property Helpers (4) - Phase 4.2
+        BuildNavigationPath = BuildNavigationPath,
+        GetForeignKeyInfo = GetForeignKeyInfo,
+        GetUniqueConstraints = GetUniqueConstraints,
+
+        // Query Tagging Helpers (3) - Phase 5.1
+        InferQueryType = InferQueryType,
+        MakeQueryTagStatement = MakeQueryTagStatement,
+        BuildQueryTagRecord = BuildQueryTagRecord,
+
+        // Distributed Tracing Helpers (5) - Phase 5.2
+        GenerateRandomHex = GenerateRandomHex,
+        CleanActivityId = CleanActivityId,
+        MakeTraceParentId = MakeTraceParentId,
+        MakeTraceState = MakeTraceState,
+        BuildTracingHeaders = BuildTracingHeaders,
+
+        // Complex Type Helpers (3) - Phase 5.3
+        IsComplexType = IsComplexType,
+        SafeParseJson = SafeParseJson,
+        LooksLikeJson = LooksLikeJson,
+
+        // Error Handling Helpers (4) - Phase 6
+        IsWarehouseSuspendedError = IsWarehouseSuspendedError,
+        OAuthExpiredErrorCode = OAuthExpiredErrorCode,
+        IsOAuthExpiredError = IsOAuthExpiredError,
+        IsValidSnowflakeServer = IsValidSnowflakeServer,
+
+        // Helpers
+        EscapeIdentifier = EscapeIdentifier,
+        EscapeLiteral = EscapeLiteral,
+        FormatNumber = FormatNumber,
+        FunctionRegistry = FunctionRegistry,
+        IsFunctionSupported = IsFunctionSupported,
+        GetFunctionGenerator = GetFunctionGenerator,
+        TranslateExpression = TranslateExpression,
+        GetSupportedFunctionCount = GetSupportedFunctionCount,
+        GetSupportedFunctionNames = GetSupportedFunctionNames
+    ]
+in
+    SqlGenerator

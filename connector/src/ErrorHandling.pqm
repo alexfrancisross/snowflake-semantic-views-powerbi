@@ -1,0 +1,185 @@
+// ErrorHandling.pqm - Error detection and handling functions
+// Extracted from SnowflakeSemanticViews.pq for modularity
+//
+// Provides:
+// - Warehouse suspended error detection
+// - OAuth token expiration handling
+// - Server name validation
+//
+// Pattern: Returns record with exported functions for use by main connector
+
+let
+    // =============================================================================
+    // ERROR TYPE CONSTANTS
+    // =============================================================================
+    // Centralized error type definitions - use these constants throughout connector
+    ERROR_DATA_SOURCE = "DataSource.Error",
+    ERROR_CREDENTIAL = "Credential.AccessDenied",
+    ERROR_EXPRESSION = "Expression.Error",
+    ERROR_FOLDING = "Expression.FoldingError",
+    ERROR_RATE_LIMIT = "RateLimitExceeded",
+    ERROR_PREVIEW_TIMEOUT = "PreviewTimeout",
+
+    // =============================================================================
+    // OAUTH ERROR CODE
+    // =============================================================================
+    // Error code 390318 indicates OAuth token expiration in Snowflake
+    OAuthExpiredErrorCode = 390318,
+
+    // =============================================================================
+    // WAREHOUSE SUSPENDED ERROR HANDLER
+    // =============================================================================
+    // Detects warehouse suspended errors and provides user-friendly message
+    IsWarehouseSuspendedError = (errorMessage as text) as logical =>
+        Text.Contains(errorMessage, "57P03") or
+        Text.Contains(Text.Lower(errorMessage), "suspended") or
+        Text.Contains(Text.Lower(errorMessage), "warehouse") and Text.Contains(Text.Lower(errorMessage), "not running"),
+
+    HandleWarehouseError = (errorRecord as record, warehouseName as text) as any =>
+        let
+            errorMessage = errorRecord[Message]? ?? "",
+            IsSuspended = IsWarehouseSuspendedError(errorMessage),
+
+            Result = if IsSuspended then
+                error Error.Record(
+                    ERROR_DATA_SOURCE,
+                    "The warehouse '" & warehouseName & "' is currently suspended or not running. " &
+                    "Please resume the warehouse in Snowflake or select a different warehouse. " &
+                    "To resume: USE WAREHOUSE " & warehouseName & "; ALTER WAREHOUSE " & warehouseName & " RESUME;",
+                    errorRecord[Detail]?
+                )
+            else
+                error errorRecord
+        in
+            Result,
+
+    // =============================================================================
+    // OAUTH TOKEN EXPIRATION HANDLER
+    // =============================================================================
+    // Detects OAuth token expiration and signals for refresh
+    //
+    IsOAuthExpiredError = (errorRecord as record) as logical =>
+        let
+            nativeError = errorRecord[NativeError]? ?? 0,
+            errorMessage = Text.Lower(errorRecord[Message]? ?? ""),
+            // Check for specific OAuth expiration indicators
+            hasExpiredCode = nativeError = OAuthExpiredErrorCode,
+            hasExpiredMessage = Text.Contains(errorMessage, "token") and
+                (Text.Contains(errorMessage, "expired") or Text.Contains(errorMessage, "invalid"))
+        in
+            hasExpiredCode or hasExpiredMessage,
+
+    HandleOAuthError = (errorRecord as record, hasCredential as logical) as any =>
+        let
+            IsExpired = IsOAuthExpiredError(errorRecord),
+            Result = if IsExpired then
+                error Error.Record(
+                    ERROR_CREDENTIAL,
+                    "OAuth token has expired. Please sign in again to refresh your credentials. " &
+                    "Go to: File → Options → Data source settings → Clear Permissions, then reconnect.",
+                    [NeedsRefresh = true, OriginalError = errorRecord]
+                )
+            else
+                error errorRecord
+        in
+            Result,
+
+    // =============================================================================
+    // SERVER NAME VALIDATION
+    // =============================================================================
+    // Validates server name format before connecting
+    // v3.1.0: Added PrivateLink URL validation
+    ValidateServerName = (server as text, authKind as text) as text =>
+        let
+            // Parse the server name as a URI to validate format
+            Address = try Uri.Parts("https://" & server) otherwise null,
+            lowerServer = Text.Lower(server),
+
+            // Validation checks
+            IsValidAddress = Address <> null,
+            IsValidHost = IsValidAddress and Address[Host]? <> null and Address[Host] <> "",
+            IsValidPath = IsValidAddress and (Address[Path]? = "/" or Address[Path]? = ""),
+            HasNoQuery = IsValidAddress and (Address[Query]? = [] or Address[Query]? = null),
+            HasNoFragment = IsValidAddress and (Address[Fragment]? = "" or Address[Fragment]? = null),
+
+            // v3.1.0: PrivateLink URL format validation
+            // PrivateLink URLs must end with ".privatelink.snowflakecomputing.com"
+            IsPrivateLinkUrl = Text.Contains(lowerServer, ".privatelink."),
+            IsValidPrivateLink = not IsPrivateLinkUrl or
+                Text.EndsWith(lowerServer, ".privatelink.snowflakecomputing.com"),
+
+            // OAuth requires .snowflakecomputing.com domain
+            IsValidForOAuth = authKind <> "OAuth" or
+                Text.EndsWith(lowerServer, ".snowflakecomputing.com"),
+
+            // Snowflake server patterns (includes PrivateLink)
+            IsSnowflakeServer = Text.EndsWith(lowerServer, ".snowflakecomputing.com") or
+                Text.EndsWith(lowerServer, ".snowflake.com") or
+                Text.Contains(lowerServer, "snowflake"),
+
+            // Build result
+            Result =
+                if not IsValidAddress or not IsValidHost then
+                    error Error.Record(ERROR_DATA_SOURCE,
+                        "Invalid server name: '" & server & "'. " &
+                        "Please enter a valid Snowflake server URL (e.g., account.snowflakecomputing.com)")
+                else if not IsValidPath or not HasNoQuery or not HasNoFragment then
+                    error Error.Record(ERROR_DATA_SOURCE,
+                        "Server name should not contain path, query, or fragment: '" & server & "'. " &
+                        "Use only the hostname (e.g., account.snowflakecomputing.com)")
+                else if not IsValidPrivateLink then
+                    error Error.Record(ERROR_DATA_SOURCE,
+                        "Invalid PrivateLink URL format: '" & server & "'. " &
+                        "PrivateLink URLs should end with '.privatelink.snowflakecomputing.com' " &
+                        "(e.g., orgname-account.privatelink.snowflakecomputing.com or " &
+                        "account.region.privatelink.snowflakecomputing.com)")
+                else if not IsValidForOAuth then
+                    error Error.Record(ERROR_DATA_SOURCE,
+                        "OAuth authentication requires a .snowflakecomputing.com server. " &
+                        "Server '" & server & "' is not valid for OAuth.")
+                else if not IsSnowflakeServer then
+                    // Warning only - allow non-standard servers for private deployments
+                    Address[Host]
+                else
+                    Address[Host]
+        in
+            Result,
+
+    // =============================================================================
+    // CREATE ERROR RECORD HELPER
+    // =============================================================================
+    // Factory function for creating consistent error records
+    // Standardizes error creation across the connector
+    //
+    CreateError = (errorType as text, message as text, optional detail as any) as record =>
+        Error.Record(errorType, message, detail)
+
+in
+    // Export all functions as a record
+    [
+        // Error detection
+        IsWarehouseSuspendedError = IsWarehouseSuspendedError,
+        IsOAuthExpiredError = IsOAuthExpiredError,
+
+        // Error handlers
+        HandleWarehouseError = HandleWarehouseError,
+        HandleOAuthError = HandleOAuthError,
+
+        // Validation
+        ValidateServerName = ValidateServerName,
+
+        // Factory
+        CreateError = CreateError,
+
+        // Constants (exposed for callers who need them)
+        OAuthExpiredErrorCode = OAuthExpiredErrorCode,
+        ERROR_DATA_SOURCE = ERROR_DATA_SOURCE,
+        ERROR_CREDENTIAL = ERROR_CREDENTIAL,
+        ERROR_EXPRESSION = ERROR_EXPRESSION,
+        ERROR_FOLDING = ERROR_FOLDING,
+        ERROR_RATE_LIMIT = ERROR_RATE_LIMIT,
+        ERROR_PREVIEW_TIMEOUT = ERROR_PREVIEW_TIMEOUT,
+        // Additional error types for filter and metadata operations
+        ERROR_NO_COLUMNS = "Metadata.NoColumns",
+        ERROR_FILTER = "Filter.Error"
+    ]

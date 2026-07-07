@@ -1,0 +1,132 @@
+// AdbcSqlGenerator.pqm - Snowflake SQL Generator for Adbc.DataSource DirectQuery
+// Provides SQL type mappings and literal formatting for Snowflake queries
+// Used with Adbc.DataSource for standard tables (not semantic views)
+//
+// This module provides a SqlGenerator that can be passed to Adbc.DataSource
+// to enable native DirectQuery support for standard tables including JOINs.
+let
+    // Helper function to load embedded modules
+    Extension.LoadExpression = (name as text) =>
+        let
+            binary = Extension.Contents(name),
+            asText = Text.FromBinary(binary)
+        in
+            Expression.Evaluate(asText, #shared),
+
+    // Load SqlGeneratorHelpers from our embedded module
+    SqlGeneratorHelpers = Extension.LoadExpression("SqlGeneratorCommon.pqm"),
+
+    // Literal formatting helpers
+    GetNumberLiteral = (value as number) => Number.ToText(value),
+    GetTimeLiteral = (value as time) => Time.ToText(value, [Format = "HH:mm:ss.FFFFFFF"]),
+    GetDateLiteral = (value as date) => Date.ToText(value, [Format = "yyyy-MM-dd"]),
+    GetDateTimeLiteral = (value as datetime) as text => DateTime.ToText(value, [Format = "yyyy-MM-dd HH:mm:ss.FFFFFFF"]),
+    GetStringLiteral = (value as text) as text => Text.Format("#{0}#{1}#{2}", {"'", value, "'"}),
+
+    // Snowflake type mappings
+    SqlGetTypeInfo = #table(
+        {"SqlTypeName", "Type", "ColumnSize", "GetLiteral", "Searchable", "UnsignedAttribute", "NumericPrecisionRadix"},
+        {
+            {"CHAR", Text.Type, 134217728, GetStringLiteral, 3, null, null},
+            {"NUMBER", Decimal.Type, 38, GetNumberLiteral, 2, 0, 10},
+            {"DECIMAL", Decimal.Type, 38, GetNumberLiteral, 2, 0, 10},
+            {"INTEGER", Int32.Type, 10, GetNumberLiteral, 2, 0, 2},
+            {"BIGINT", Int64.Type, 19, GetNumberLiteral, 2, 0, 2},
+            {"FLOAT", Double.Type, 15, GetNumberLiteral, 2, 0, 2},
+            {"REAL", Double.Type, 7, GetNumberLiteral, 2, 0, 2},
+            {"DOUBLE", Double.Type, 15, GetNumberLiteral, 2, 0, 2},
+            {"TEXT", Text.Type, 134217728, GetStringLiteral, 3, null, null},
+            {"BINARY", Binary.Type, 8388608, null, 3, null, null},
+            {"VARBINARY", Binary.Type, 8388608, null, 3, null, null},
+            {"DATE", Date.Type, 10, GetDateLiteral, 3, null, null},
+            {"TIME", Time.Type, 18, GetTimeLiteral, 3, null, null},
+            {"TIMESTAMP_LTZ", DateTime.Type, 35, GetDateTimeLiteral, 3, null, null},
+            {"TIMESTAMP_NTZ", DateTime.Type, 35, GetDateTimeLiteral, 3, null, null},
+            {"TIMESTAMP_TZ", DateTime.Type, 35, GetDateTimeLiteral, 3, null, null},
+            {"TIMESTAMP", DateTime.Type, 35, GetDateTimeLiteral, 3, null, null},
+            {"ARRAY", Text.Type, 134217728, null, 3, null, null},
+            {"OBJECT", Text.Type, 134217728, null, 3, null, null},
+            {"VARIANT", Text.Type, 134217728, null, 3, null, null},
+            {"VARCHAR", Text.Type, 134217728, GetStringLiteral, 3, null, null},
+            {"BOOLEAN", Logical.Type, 1, null, 2, null, null},
+            {"TYPE_DATE", Date.Type, 10, GetDateLiteral, 3, null, null},
+            {"TYPE_TIME", Time.Type, 18, GetTimeLiteral, 3, null, null},
+            {"TYPE_TIMESTAMP", DateTime.Type, 35, GetDateTimeLiteral, 3, null, null}
+        }
+    ),
+
+    // Supported type conversions for Snowflake
+    SupportedConversions = #table(
+        {"FromSqlTypeName", "ToSqlTypeNames"},
+        {
+            {"BIGINT", {"BIGINT", "CHAR", "NUMBER", "DECIMAL", "INTEGER", "FLOAT", "DOUBLE", "VARCHAR"}},
+            {"BINARY", {"CHAR", "VARCHAR", "BINARY", "VARBINARY"}},
+            {"BOOLEAN", {"CHAR", "NUMBER", "DECIMAL", "INTEGER", "FLOAT", "DOUBLE", "VARCHAR"}},
+            {"CHAR", {"CHAR", "NUMBER", "DECIMAL", "INTEGER", "FLOAT", "REAL", "DOUBLE", "VARCHAR", "BINARY", "VARBINARY", "BIGINT", "DATE", "TIME", "TIMESTAMP"}},
+            {"DECIMAL", {"CHAR", "NUMBER", "DECIMAL", "INTEGER", "FLOAT", "DOUBLE", "VARCHAR"}},
+            {"DOUBLE", {"CHAR", "NUMBER", "DECIMAL", "INTEGER", "FLOAT", "DOUBLE", "VARCHAR"}},
+            {"FLOAT", {"CHAR", "NUMBER", "DECIMAL", "INTEGER", "FLOAT", "DOUBLE", "VARCHAR"}},
+            {"INTEGER", {"BIGINT", "CHAR", "NUMBER", "DECIMAL", "INTEGER", "FLOAT", "DOUBLE", "VARCHAR"}},
+            {"NUMBER", {"CHAR", "NUMBER", "DECIMAL", "INTEGER", "FLOAT", "DOUBLE", "VARCHAR"}},
+            {"REAL", {"CHAR", "NUMBER", "DECIMAL", "INTEGER", "FLOAT", "DOUBLE", "VARCHAR"}},
+            {"TIMESTAMP", {"CHAR", "VARCHAR", "DATE", "TIME", "TIMESTAMP", "VARCHAR"}},
+            {"DATE", {"CHAR", "VARCHAR", "DATE", "TIMESTAMP"}},
+            {"TIME", {"CHAR", "VARCHAR", "TIME"}},
+            {"VARBINARY", {"CHAR", "VARCHAR", "BINARY", "VARBINARY"}},
+            {"VARCHAR", {"CHAR", "NUMBER", "DECIMAL", "INTEGER", "FLOAT", "DOUBLE", "VARCHAR", "BINARY", "VARBINARY", "DATE", "TIME", "TIMESTAMP"}}
+        }
+    ),
+
+    // SQL type categories for Snowflake
+    SqlTypesCategories = [
+        SoftBase2Types = {"DOUBLE", "FLOAT", "REAL", "DECIMAL", "NUMERIC", "BIGINT", "INTEGER"},
+        SoftBase10Types = {"DECIMAL", "NUMERIC", "DOUBLE", "FLOAT", "REAL", "DECIMAL", "BIGINT", "INTEGER"},
+        VarBinaryTypes = {"VARBINARY"},
+        WideCharTypes = {"CHAR", "VARCHAR"},
+        VarCharTypes = {"TEXT"},
+        WideVarCharTypes = {"VARCHAR"}
+    ],
+
+    // Default M type to SQL type mappings
+    DefaultTypes = #table(
+        {"Type", "SqlTypeName"},
+        {
+            {Double.Type, "DOUBLE"},
+            {Date.Type, "DATE"},
+            {DateTime.Type, "TIMESTAMP"},
+            {Time.Type, "TIME"},
+            {Text.Type, "VARCHAR"},
+            {Int32.Type, "INTEGER"},
+            {Int64.Type, "BIGINT"},
+            {Decimal.Type, "DECIMAL"},
+            {Single.Type, "FLOAT"},
+            {Logical.Type, "BOOLEAN"},
+            {Binary.Type, "BINARY"}
+        }
+    ),
+
+    // Override record for SQL capabilities
+    Override = [
+        SqlGetTypeInfo = SqlGetTypeInfo,
+        SqlCapabilities = [
+            LimitClauseKind = LimitClauseKind.LimitOffset,
+            SupportedSql92RelationalJoinOperators = [
+                FullOuterJoin = true,
+                LeftOuterJoin = true,
+                RightOuterJoin = true,
+                InnerJoin = true,
+                CrossJoin = true
+            ]
+        ],
+        FunctionOverrides = [],
+        BinaryOperatorOverrides = [],
+        UnaryOperatorOverrides = [],
+        DefaultTypes = DefaultTypes,
+        SupportedConversions = SupportedConversions,
+        SqlTypesCategories = SqlTypesCategories
+    ],
+
+    // Create the SQL Generator by merging our overrides with the Sql92 base
+    SqlGenerator = SqlGeneratorHelpers[MergeOverrides]("Sql92", Override, false)
+in
+    SqlGenerator
