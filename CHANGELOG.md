@@ -2,7 +2,7 @@
 
 All notable changes to the Snowflake Semantic Views Power BI Connector.
 
-## [Unreleased]
+## [3.3.0] - 2026-07-07
 
 ### Added
 
@@ -92,8 +92,6 @@ All notable changes to the Snowflake Semantic Views Power BI Connector.
   (`tests/pqtest/queries/05-negative/*.ignore`). Hand-written M against
   the connector should use the defensive `Table.SelectRows` +
   `Table.IsEmpty` pattern instead.
-
-## [3.3.0] - 2026-07-07
 
 ### Added
 
