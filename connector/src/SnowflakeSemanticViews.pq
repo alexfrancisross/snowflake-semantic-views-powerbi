@@ -2789,6 +2789,12 @@ shared SnowflakeSemanticViews.RunUnitTests = () as table =>
         // --- ParseSnowflakeServer: mixed-case account name must be preserved (case-sensitive TLS/SNI) ---
         pMixedCase = ParseSnowflakeServer("MyOrg-MyAccount.snowflakecomputing.com"),
 
+        // --- ParseSnowflakeServer: bare multi-segment identifier keeps its region via full Host ---
+        pBareMulti = ParseSnowflakeServer("cs83279.eu-west-2.aws"),
+
+        // --- ParseSnowflakeServer: bare single-segment identifier lets the driver build the host ---
+        pBareSingle = ParseSnowflakeServer("myaccount"),
+
         // --- ResolveDuplicateColumnNames: suffixes duplicate display names but keeps SourceColumn ---
         dupInput = {
             [ColumnName = "REGION"],
@@ -2822,6 +2828,15 @@ shared SnowflakeSemanticViews.RunUnitTests = () as table =>
             makeCase("ParseServer_PrivateLinkLocator_IsPrivateLink", true, pPrivateLinkLocator[IsPrivateLink]),
 
             makeCase("ParseServer_MixedCase_AccountPreservesCase", "MyOrg-MyAccount", pMixedCase[Account]),
+
+            makeCase("ParseServer_BareMulti_Account", "cs83279", pBareMulti[Account]),
+            makeCase("ParseServer_BareMulti_Region", "eu-west-2", pBareMulti[Region]),
+            makeCase("ParseServer_BareMulti_Host", "cs83279.eu-west-2.aws.snowflakecomputing.com", pBareMulti[Host]),
+            makeCase("ParseServer_BareMulti_UrlFormat", "LegacyLocator", pBareMulti[UrlFormat]),
+
+            makeCase("ParseServer_BareSingle_Account", "myaccount", pBareSingle[Account]),
+            makeCase("ParseServer_BareSingle_Host", null, pBareSingle[Host]),
+            makeCase("ParseServer_BareSingle_UrlFormat", "AccountName", pBareSingle[UrlFormat]),
 
             makeCase("ResolveDuplicates_Count", 4, List.Count(dupResult)),
             makeCase("ResolveDuplicates_First_ColumnName", "REGION", dupResult{0}[ColumnName]),
@@ -2999,6 +3014,8 @@ BuildQueryTag = (sql as text) as text =>
 //   - Legacy locator: xy12345.us-east-1.aws.snowflakecomputing.com
 //   - PrivateLink (org): orgname-account.privatelink.snowflakecomputing.com
 //   - PrivateLink (legacy): xy12345.eu-west-1.privatelink.snowflakecomputing.com
+//   - Bare identifier: myaccount or orgname-account (driver builds the host)
+//   - Bare multi-segment: xy12345.eu-west-2.aws (suffix appended to preserve region)
 //
 // Returns record with:
 //   Account - Account identifier for ADBC
@@ -3038,22 +3055,30 @@ ParseSnowflakeServer = (server as text) as record =>
             let
                 // Standard or legacy format
                 firstPart = parts{0},
+                endsWithSfc = Text.EndsWith(lowerServer, ".snowflakecomputing.com"),
                 // Check if this is legacy format with region (xy12345.region.cloud.snowflakecomputing.com)
                 // Legacy format has: account.region.cloud.snowflakecomputing.com (5 parts)
                 // Or: account.region.snowflakecomputing.com (4 parts with region)
                 hasRegion = numParts >= 4 and
                     not Text.StartsWith(Text.Lower(parts{1}), "snowflake") and
-                    Text.EndsWith(lowerServer, ".snowflakecomputing.com"),
-                region = if hasRegion then parts{1} else null
+                    endsWithSfc,
+                // Bare multi-segment identifier (e.g. "xy12345.eu-west-2.aws"): no
+                // snowflakecomputing.com suffix but dotted segments carrying a region.
+                // Passing just parts{0} to the driver would drop the region, so build
+                // the full host ourselves by appending the standard suffix.
+                isBareMultiSegment = (not endsWithSfc) and numParts >= 2,
+                region = if hasRegion or isBareMultiSegment then parts{1} else null
             in
                 [
                     Account = firstPart,
                     // Set Host for legacy locator so ADBC uses uri.host override
                     // (without this, ADBC constructs URL from account alone, dropping the region)
-                    Host = if hasRegion then server else null,
+                    Host = if hasRegion then server
+                        else if isBareMultiSegment then server & ".snowflakecomputing.com"
+                        else null,
                     Region = region,
                     IsPrivateLink = false,
-                    UrlFormat = if hasRegion then "LegacyLocator" else "AccountName"
+                    UrlFormat = if hasRegion or isBareMultiSegment then "LegacyLocator" else "AccountName"
                 ]
     in
         result;
