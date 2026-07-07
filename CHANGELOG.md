@@ -6,6 +6,18 @@ All notable changes to the Snowflake Semantic Views Power BI Connector.
 
 ### Added
 
+- **MSI installer build project** (`connector/installer/`): WiX Toolset 6.0.2
+  source (`Product.wxs`, `installer.wixproj`, `License.rtf`) for
+  `SnowflakeSemanticViewsConnector.msi`, previously only available as a
+  prebuilt binary with no source in this repo. Builds with
+  `dotnet build connector/installer -c Release`, embedding
+  `connector/SnowflakeSemanticViews.mez` and installing per-user to
+  `Documents\Power BI Desktop\Custom Connectors\`. Rebuilt both installer
+  copies (`connector/SnowflakeSemanticViewsConnector.msi` and the
+  Streamlit-served `streamlit/assets/SnowflakeSemanticViewsConnector.msi`,
+  which had drifted to stale v3.2.0 and v3.0.0 payloads respectively) and
+  refreshed `streamlit/assets/SnowflakeSemanticViews.mez` to match
+  `connector/SnowflakeSemanticViews.mez`, all now on v3.3.0.
 - PQTest integration test suite (`tests/pqtest/`): executes the connector's
   actual M code end-to-end through the Power Query SDK's PQTest.exe against
   a live Snowflake account, with committed `.query.pqout` snapshots

@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <!--
+    Snowflake Semantic Views Connector MSI Installer
+    Deploys .mez connector to Power BI Custom Connectors folder
+    Per-user installation to Documents folder
+  -->
+
+  <Package Name="Snowflake Semantic Views Connector"
+           Manufacturer="Snowflake"
+           Version="3.3.0"
+           UpgradeCode="A7E8C3D1-5B2F-4A9E-8C7D-6F5E4D3C2B1A"
+           Compressed="yes"
+           Scope="perUser">
+
+    <!-- Allow major upgrades, remove old version first -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+
+    <!-- Embed all files in the MSI -->
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Feature containing the connector -->
+    <Feature Id="MainFeature" Title="Snowflake Semantic Views Connector" Level="1">
+      <ComponentGroupRef Id="ConnectorComponents" />
+    </Feature>
+
+    <!-- Standard WiX UI with folder selection -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+
+    <!-- License file for EULA dialog -->
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+
+  </Package>
+
+  <!-- Directory structure using shell folder -->
+  <Fragment>
+    <!-- PersonalFolder is the user's Documents folder (respects OneDrive redirection) -->
+    <StandardDirectory Id="PersonalFolder">
+      <Directory Id="PowerBIDesktopFolder" Name="Power BI Desktop">
+        <Directory Id="INSTALLFOLDER" Name="Custom Connectors" />
+      </Directory>
+    </StandardDirectory>
+  </Fragment>
+
+  <!-- Components to install -->
+  <Fragment>
+    <ComponentGroup Id="ConnectorComponents" Directory="INSTALLFOLDER">
+      <Component Id="ConnectorFile" Guid="B8F9D4E2-6C3A-4B8D-9E7F-8A6B5C4D3E2F">
+        <!-- Registry key as KeyPath for per-user install (ICE38 requirement) -->
+        <RegistryValue Root="HKCU"
+                       Key="Software\Snowflake\SemanticViewsConnector"
+                       Name="InstallPath"
+                       Type="string"
+                       Value="[INSTALLFOLDER]"
+                       KeyPath="yes" />
+
+        <!-- The actual connector file -->
+        <File Id="SnowflakeSemanticViewsMez"
+              Source="..\SnowflakeSemanticViews.mez" />
+
+        <!-- Create the folder -->
+        <CreateFolder />
+
+        <!-- Clean up folder on uninstall (ICE64 requirement) -->
+        <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+      </Component>
+
+      <!-- Separate component to remove parent folder if empty -->
+      <Component Id="CleanupFolders" Guid="C9F0E5F3-7D4B-5C9E-0F8A-9B7C6D5E4F3A">
+        <RegistryValue Root="HKCU"
+                       Key="Software\Snowflake\SemanticViewsConnector"
+                       Name="Installed"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+        <RemoveFolder Id="RemovePowerBIFolder" Directory="PowerBIDesktopFolder" On="uninstall" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>

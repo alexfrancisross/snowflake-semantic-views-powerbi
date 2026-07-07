@@ -12,3 +12,5 @@ docs/
 .ruff_cache/
 tests/
 pyproject.toml
+connector/installer/bin/
+connector/installer/obj/
