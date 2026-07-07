@@ -32,6 +32,7 @@ from .metadata_fetcher import (
     CardinalityInfo,
     has_composite_primary_key,
 )
+from .tmdl_generator import build_defensive_custom_m_lines
 from .type_mappings import snowflake_to_pbi_type
 
 
@@ -1018,15 +1019,16 @@ def _generate_m_expression(
     schema_var = escape_m_identifier(f"{schema}_Schema")
     view_var = escape_m_identifier(f"{view_name}1")
 
-    return [
-        "let",
-        f'    Source = SnowflakeSemanticViews.Contents("{escape_m_string(server)}", "{escape_m_string(warehouse)}", null, null, null, null, null),',
-        f'    {db_var} = Source{{[name="{database}"]}}[Data],',
-        f'    {schema_var} = {db_var}{{[name="{schema}"]}}[Data],',
-        f'    {view_var} = {schema_var}{{[name="{view_name}"]}}[Data]',
-        "in",
-        f"    {view_var}"
-    ]
+    return build_defensive_custom_m_lines(
+        f'SnowflakeSemanticViews.Contents("{escape_m_string(server)}", '
+        f'"{escape_m_string(warehouse)}", null, null, null, null, null)',
+        database,
+        schema,
+        view_name,
+        db_var=db_var,
+        schema_var=schema_var,
+        view_var=view_var,
+    )
 
 
 def _generate_native_m_expression(
@@ -1769,15 +1771,15 @@ def _generate_table_definition_directquery(
     else:
         # Custom semantic views connector: SnowflakeSemanticViews.Contents()
         # Uses name="{name}" navigation
-        m_expression = [
-            "let",
-            f'    Source = #"SnowflakeSemanticViewsSource",',
-            f'    {db_var_custom} = Source{{[name="{database}"]}}[Data],',
-            f'    {schema_var} = {db_var_custom}{{[name="{schema}"]}}[Data],',
-            f'    {view_var} = {schema_var}{{[name="{source_name_escaped}"]}}[Data]',
-            "in",
-            f"    {view_var}"
-        ]
+        m_expression = build_defensive_custom_m_lines(
+            '#"SnowflakeSemanticViewsSource"',
+            database,
+            schema,
+            source_name_escaped,
+            db_var=db_var_custom,
+            schema_var=schema_var,
+            view_var=view_var,
+        )
 
     table = {
         "name": view_name,

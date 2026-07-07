@@ -27,6 +27,60 @@ def escape_m_string(value: str | None) -> str:
     return (value or "").replace('"', '""')
 
 
+def build_defensive_custom_m_lines(
+    source_expr: str,
+    database: str,
+    schema: str,
+    view: str,
+    db_var: str,
+    schema_var: str,
+    view_var: str,
+) -> list[str]:
+    """
+    Build the M expression lines for navigating the custom connector's
+    nav table (database -> schema -> semantic view) with defensive lookups.
+
+    A raw key lookup like `Source{[name="X"]}[Data]` on a missing key makes
+    the mashup engine build a key-miss error that embeds the whole nav table;
+    serializing it forces every sibling [Data] cell (each one an expensive
+    metadata query), which can hang a refresh for a long time before failing.
+    `Table.SelectRows` + `Table.IsEmpty` never constructs that error, so a
+    dropped/renamed object fails fast with a clear message instead.
+
+    Args:
+        source_expr: M expression yielding the root nav table
+            (e.g. 'SnowflakeSemanticViews.Contents(...)' or '#"..."').
+        database: Database name, already escaped via escape_m_string.
+        schema: Schema name, already escaped via escape_m_string.
+        view: Semantic view name, already escaped via escape_m_string.
+        db_var: M variable name for the database-level nav table.
+        schema_var: M variable name for the schema-level nav table.
+        view_var: M variable name for the final view table.
+
+    Returns:
+        List of M expression lines (full let..in block).
+    """
+    not_found_hint = "it may have been dropped or renamed, or your role may not have access"
+    return [
+        "let",
+        f"    Source = {source_expr},",
+        f'    DbRows = Table.SelectRows(Source, each [name] = "{database}"),',
+        f"    {db_var} = if Table.IsEmpty(DbRows)",
+        f'        then error Error.Record("DataSource.Error", "Database \'{database}\' not found - {not_found_hint}")',
+        "        else DbRows{0}[Data],",
+        f'    SchemaRows = Table.SelectRows({db_var}, each [name] = "{schema}"),',
+        f"    {schema_var} = if Table.IsEmpty(SchemaRows)",
+        f'        then error Error.Record("DataSource.Error", "Schema \'{database}.{schema}\' not found - {not_found_hint}")',
+        "        else SchemaRows{0}[Data],",
+        f'    ViewRows = Table.SelectRows({schema_var}, each [name] = "{view}"),',
+        f"    {view_var} = if Table.IsEmpty(ViewRows)",
+        f'        then error Error.Record("DataSource.Error", "Semantic view \'{database}.{schema}.{view}\' not found - {not_found_hint}")',
+        "        else ViewRows{0}[Data]",
+        "in",
+        f"    {view_var}",
+    ]
+
+
 def get_source_provider_type(snowflake_type: str, pbi_type: str) -> str | None:
     """
     Get the sourceProviderType for Power BI based on Snowflake type.
@@ -297,13 +351,19 @@ def generate_semantic_view_m_expression(
     schema = escape_m_string(metadata.schema)
     escaped_view = escape_m_string(metadata.view)
 
-    return f'''let
-    Source = SnowflakeSemanticViews.Contents("{escape_m_string(server)}", "{escape_m_string(warehouse)}", null, null, null, null, null),
-    {database}_DB = Source{{[name="{database}"]}}[Data],
-    {schema}_Schema = {database}_DB{{[name="{schema}"]}}[Data],
-    {escaped_view}1 = {schema}_Schema{{[name="{escaped_view}"]}}[Data]
-in
-    {escaped_view}1'''
+    source_expr = (
+        f'SnowflakeSemanticViews.Contents("{escape_m_string(server)}", '
+        f'"{escape_m_string(warehouse)}", null, null, null, null, null)'
+    )
+    return "\n".join(build_defensive_custom_m_lines(
+        source_expr,
+        database,
+        schema,
+        escaped_view,
+        db_var=f"{database}_DB",
+        schema_var=f"{schema}_Schema",
+        view_var=f"{escaped_view}1",
+    ))
 
 
 def generate_standard_m_expression(
@@ -573,15 +633,16 @@ def generate_model_bim(
             ]
         else:
             # Custom semantic views connector: SnowflakeSemanticViews.Contents()
-            m_expression = [
-                "let",
-                f'    Source = SnowflakeSemanticViews.Contents("{escape_m_string(server)}", "{escape_m_string(warehouse)}", null, null, null, null, null),',
-                f'    {database}_DB = Source{{[name="{database}"]}}[Data],',
-                f'    {schema}_Schema = {database}_DB{{[name="{schema}"]}}[Data],',
-                f'    {object_name}1 = {schema}_Schema{{[name="{object_name}"]}}[Data]',
-                "in",
-                f"    {object_name}1"
-            ]
+            m_expression = build_defensive_custom_m_lines(
+                f'SnowflakeSemanticViews.Contents("{escape_m_string(server)}", '
+                f'"{escape_m_string(warehouse)}", null, null, null, null, null)',
+                database,
+                schema,
+                object_name,
+                db_var=f"{database}_DB",
+                schema_var=f"{schema}_Schema",
+                view_var=f"{object_name}1",
+            )
 
         table = {
             "name": view_name,

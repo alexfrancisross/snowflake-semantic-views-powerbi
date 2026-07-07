@@ -10,7 +10,7 @@ All notable changes to the Snowflake Semantic Views Power BI Connector.
   actual M code end-to-end through the Power Query SDK's PQTest.exe against
   a live Snowflake account, with committed `.query.pqout` snapshots
   (verified byte-deterministic against the static `TPCH_RICH_DB` fixtures).
-  Five categories, all passing (20/20): offline unit/SQL-generation tests
+  Five categories, all passing (22/22): offline unit/SQL-generation tests
   (`RunUnitTests`/`TestParseServer`/`TestGenerateSQL`), live
   navigation/schema metadata, live data correctness (including the four
   issue #4 `SV_EDGE_*` regression views), query-folding gating
@@ -22,15 +22,55 @@ All notable changes to the Snowflake Semantic Views Power BI Connector.
   (`Set-PQCredential.ps1`), and fixture verification
   (`Verify-Fixtures.ps1`).
 
+### Fixed
+
+- **Bare multi-segment account identifiers dropped their region**: a
+  server value like `cs83279.eu-west-2.aws` (no
+  `.snowflakecomputing.com` suffix) was parsed by the connector's
+  `ParseSnowflakeServer` as just the first segment, so no ADBC
+  `uri.host` override was set and the driver built a host without the
+  region - connecting to the wrong host. The connector now appends the
+  standard suffix and preserves the region for such identifiers.
+  Single-segment identifiers (`myaccount`, `myorg-myaccount`) are
+  unchanged. The Python mirror
+  (`streamlit/utils/host_builder.py:build_snowflake_host`) had the
+  related inverse bug - passing a multi-segment identifier together
+  with a `region` produced a double-region host - and now only injects
+  the region for single-segment locators.
+- **Generated M navigation no longer hangs when a semantic view,
+  schema, or database is missing**: the PBIT/TMDL generators emitted
+  raw nav-table key lookups (`Source{[name="..."]}[Data]`); on a
+  dropped/renamed object the mashup engine's key-miss error embeds the
+  entire nav table, forcing evaluation of every sibling entry (observed
+  under PQTest as an out-of-memory failure after ~40 minutes). All four
+  custom-connector M templates now emit defensive
+  `Table.SelectRows` + `Table.IsEmpty` lookups (shared helper
+  `build_defensive_custom_m_lines`) that fail fast, in seconds, with a
+  clear qualified-name error. Covered by new fast negative PQTest
+  snapshots (`Neg-BadDatabase-Defensive`, `Neg-BadViewName-Defensive`)
+  and pytest `test_m_expression_generation.py`. Native-connector
+  (`Snowflake.Databases`) templates are unchanged.
+
+### Changed
+
+- Connector navigation hardening: `GetSchemasForDatabase` and
+  `GetTablesForSchema` now wrap their eager `SHOW` metadata queries in
+  `try` (mirroring the existing `GetDatabases` wrap) and surface a
+  traced `DataSource.Error` naming the missing database/schema instead
+  of an opaque driver error.
+
 ### Known issues
 
-- **Navigation to a nonexistent semantic view or database does not fail
-  fast**: the nav-table key-miss error can force evaluation of every
-  sibling entry, observed under PQTest as an out-of-memory failure after
-  ~40 minutes. A Power BI refresh of a report whose semantic view was
-  dropped or renamed would hit the same path. Kept as excluded regression
-  tests (`tests/pqtest/queries/05-negative/*.ignore`) pending a
-  connector-side fail-fast fix.
+- **Raw nav-table key lookups remain an engine-level hazard**: M code
+  that navigates the connector's nav table with a raw key lookup
+  (`Source{[name="..."]}[Data]`) on a missing key still triggers the
+  mashup engine's expensive key-miss error path (every sibling entry is
+  evaluated before failing). The connector and all generated M avoid
+  the pattern as of this release; the hazard is documented by the
+  excluded regression tests
+  (`tests/pqtest/queries/05-negative/*.ignore`). Hand-written M against
+  the connector should use the defensive `Table.SelectRows` +
+  `Table.IsEmpty` pattern instead.
 
 ## [3.3.0] - 2026-07-07
 
