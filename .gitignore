@@ -1,1 +1,8 @@
 streamlit/.streamlit/secrets.toml
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/dax-studio/output/
+tests/dax-studio/results/
+.cortex/
+

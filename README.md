@@ -12,8 +12,10 @@ This connector was built to bridge the gap between Snowflake's semantic layer an
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Using the Connector](#using-the-connector)
+- [Building the Connector from Source](#building-the-connector-from-source)
 - [PBIT Generator App](#pbit-generator-app)
 - [Sample Data](#sample-data)
+- [Running Tests](#running-tests)
 - [Known Limitations](#known-limitations)
 - [Troubleshooting](#troubleshooting)
 - [Version](#version)
@@ -62,10 +64,16 @@ This means you get all the flexibility of SQL—filtering, sorting, grouping, pa
 ```
 root/
 ├── connector/
+│   ├── src/                                # Readable M source for the connector
+│   ├── build.ps1                           # Rebuilds SnowflakeSemanticViews.mez from src/
 │   ├── SnowflakeSemanticViews.mez          # Power BI custom connector
 │   └── SnowflakeSemanticViewsConnector.msi # Windows installer
 ├── img/                                    # Screenshots
-├── streamlit/                              # PBIT Generator web application
+├── streamlit/                              # PBIT Generator web application (readable source)
+│   └── tests/                              # pytest unit tests
+├── tests/
+│   ├── integration/                        # Live-Snowflake SQL regression tests
+│   └── dax-studio/                         # DAX Studio query pack (Windows/PBI Desktop only)
 └── tpch_sample_data/                       # Sample Snowflake scripts for testing
 ```
 
@@ -128,6 +136,29 @@ If you prefer manual installation or need to install on a non-standard path:
 
 The connector automatically detects dimensions, metrics, and facts from your semantic view metadata. Just drag fields onto your report and the connector handles the SQL translation behind the scenes.
 
+## Building the Connector from Source
+
+The `.mez` file shipped in `connector/` is a ZIP archive built from the
+readable M source in `connector/src/`. To rebuild it after making
+changes:
+
+```powershell
+cd connector
+.\build.ps1
+```
+
+This regenerates `connector/SnowflakeSemanticViews.mez`. Copy the
+result to your Custom Connectors folder (see
+[Manual Installation](#option-2-manual-installation)) to test changes
+in Power BI Desktop.
+
+The connector also ships a lightweight self-test you can run from the
+Power Query SDK / PQTest evaluation pane without a Power BI Desktop
+session: `SnowflakeSemanticViews.RunUnitTests()` returns a table of
+`{TestName, Expected, Actual, Pass}` covering server URL parsing
+(org-account, legacy locator, PrivateLink) and duplicate column-name
+resolution.
+
 ## PBIT Generator App
 
 The `streamlit/` folder contains a companion web application that simplifies creating Power BI reports from Snowflake Semantic Views.
@@ -164,7 +195,7 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-The app will open in your browser at `http://localhost:8501`. You'll need to enter your Snowflake credentials each time you connect.
+The app will open in your browser at `http://localhost:8501`. If no `~/.snowflake/connections.toml` connection is found, the app shows a connection form (password, key-pair file, or browser/SSO authentication) instead of failing to start.
 
 ### Option 2: Deploy to Streamlit in Snowflake
 
@@ -207,8 +238,33 @@ The `tpch_sample_data/` folder contains SQL scripts to set up a test environment
 - Base tables with sample data
 - Analytical views for common patterns
 - Semantic views demonstrating various configurations
+- Edge-case semantic views for regression testing (mismatched logical/physical names, SQL-defined inline tables, mixed-case quoted identifiers)
 
-Run the scripts in order (01, 02, 03) to create a complete test environment.
+Run the scripts in order (01, 02, 03, 04) to create a complete test environment.
+
+## Running Tests
+
+**Unit tests** (Streamlit app logic, no Snowflake connection needed):
+
+```bash
+cd streamlit
+pip install -r requirements-dev.txt
+pytest tests/ -v
+ruff check .
+```
+
+**Integration tests** (runs the connector's generated SQL shapes against a live Snowflake account with `tpch_sample_data/` loaded):
+
+```bash
+python tests/integration/run_integration_tests.py [connection_name]
+```
+
+**DAX Studio tests** (Windows only, requires Power BI Desktop and [DAX Studio](https://daxstudio.org/) installed - see `tests/dax-studio/README.md`):
+
+```powershell
+cd tests\dax-studio
+.\Run-DaxStudioTests.ps1
+```
 
 ## Known Limitations
 
@@ -336,11 +392,13 @@ You can also use "Analyze in Excel" to create PivotTables connected to your sema
 
 ## Version
 
-3.0.0
+3.3.0
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## License
 
-MIT License
+MIT License. See [LICENSE](LICENSE).
 
 Copyright (c) 2026 Alex Ross
 
