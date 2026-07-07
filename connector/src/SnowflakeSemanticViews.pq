@@ -1351,7 +1351,19 @@ SnowflakeSemanticViewsImpl = (
             let
                 // ExecuteMetadataQuery uses deterministic body/headers for Web.Contents caching
                 schemasQuery = "SHOW SCHEMAS IN " & EscapeIdentifier(database),
-                schemasResult = Table.Buffer(context[ExecuteMetadataQuery](schemasQuery)),
+                schemasAttempt = try Table.Buffer(context[ExecuteMetadataQuery](schemasQuery)),
+                schemasResult = if schemasAttempt[HasError] then
+                    let
+                        originalError = schemasAttempt[Error],
+                        originalMessage = originalError[Message]? ?? "Unknown error",
+                        _ = Diagnostics.Trace(TraceLevel.Error, "BuildCustomNavigation/GetSchemasForDatabase/Failed",
+                            [Query = schemasQuery, OriginalError = originalMessage], true)
+                    in
+                        error Error.Record(ERROR_DATA_SOURCE,
+                            "Database '" & database & "' not found or not accessible: " & originalMessage,
+                            originalError)
+                else
+                    schemasAttempt[Value],
 
                 // Dynamically find the name column
                 schemas = let
@@ -1415,13 +1427,37 @@ SnowflakeSemanticViewsImpl = (
                 // Query 1: Get ALL objects (tables + views, including semantic views as "VIEW")
                 // ExecuteMetadataQuery uses deterministic body/headers for Web.Contents caching
                 objectsQuery = "SHOW OBJECTS IN SCHEMA " & qualifiedSchema,
-                objectsRaw = Table.Buffer(context[ExecuteMetadataQuery](objectsQuery)),
+                objectsAttempt = try Table.Buffer(context[ExecuteMetadataQuery](objectsQuery)),
+                objectsRaw = if objectsAttempt[HasError] then
+                    let
+                        originalError = objectsAttempt[Error],
+                        originalMessage = originalError[Message]? ?? "Unknown error",
+                        _ = Diagnostics.Trace(TraceLevel.Error, "BuildCustomNavigation/GetTablesForSchema/ObjectsFailed",
+                            [Query = objectsQuery, OriginalError = originalMessage], true)
+                    in
+                        error Error.Record(ERROR_DATA_SOURCE,
+                            "Schema '" & database & "." & schema & "' not found or not accessible: " & originalMessage,
+                            originalError)
+                else
+                    objectsAttempt[Value],
                 objects = NormalizeNameColumn(objectsRaw),
 
                 // Query 2: Get semantic view names only
                 // ExecuteMetadataQuery uses deterministic body/headers for Web.Contents caching
                 semanticQuery = "SHOW SEMANTIC VIEWS IN SCHEMA " & qualifiedSchema,
-                semanticViewsRaw = Table.Buffer(context[ExecuteMetadataQuery](semanticQuery)),
+                semanticAttempt = try Table.Buffer(context[ExecuteMetadataQuery](semanticQuery)),
+                semanticViewsRaw = if semanticAttempt[HasError] then
+                    let
+                        originalError = semanticAttempt[Error],
+                        originalMessage = originalError[Message]? ?? "Unknown error",
+                        _ = Diagnostics.Trace(TraceLevel.Error, "BuildCustomNavigation/GetTablesForSchema/SemanticViewsFailed",
+                            [Query = semanticQuery, OriginalError = originalMessage], true)
+                    in
+                        error Error.Record(ERROR_DATA_SOURCE,
+                            "Schema '" & database & "." & schema & "' not found or not accessible: " & originalMessage,
+                            originalError)
+                else
+                    semanticAttempt[Value],
                 semanticViews = NormalizeNameColumn(semanticViewsRaw),
                 semanticNames = List.Transform(Table.ToRecords(semanticViews), each [name]),
 
