@@ -4,5 +4,8 @@ __pycache__/
 .pytest_cache/
 tests/dax-studio/output/
 tests/dax-studio/results/
+tests/pqtest/tools/
+tests/pqtest/results/
+tests/pqtest/*.cred.json
 .cortex/
-
+docs/

@@ -2,6 +2,36 @@
 
 All notable changes to the Snowflake Semantic Views Power BI Connector.
 
+## [Unreleased]
+
+### Added
+
+- PQTest integration test suite (`tests/pqtest/`): executes the connector's
+  actual M code end-to-end through the Power Query SDK's PQTest.exe against
+  a live Snowflake account, with committed `.query.pqout` snapshots
+  (verified byte-deterministic against the static `TPCH_RICH_DB` fixtures).
+  Five categories, all passing (20/20): offline unit/SQL-generation tests
+  (`RunUnitTests`/`TestParseServer`/`TestGenerateSQL`), live
+  navigation/schema metadata, live data correctness (including the four
+  issue #4 `SV_EDGE_*` regression views), query-folding gating
+  (`--failOnFoldingFailure`), and expected-error negatives (wrapped in
+  `try`, since PQTest treats raw errors as failures). The connector `.mez`
+  is rebuilt from `connector/src/` before each run, validating the
+  published readable source. Includes scripts for PQTest.exe acquisition
+  (`Install-PQTools.ps1`), credential setup reusing the snow CLI PAT
+  (`Set-PQCredential.ps1`), and fixture verification
+  (`Verify-Fixtures.ps1`).
+
+### Known issues
+
+- **Navigation to a nonexistent semantic view or database does not fail
+  fast**: the nav-table key-miss error can force evaluation of every
+  sibling entry, observed under PQTest as an out-of-memory failure after
+  ~40 minutes. A Power BI refresh of a report whose semantic view was
+  dropped or renamed would hit the same path. Kept as excluded regression
+  tests (`tests/pqtest/queries/05-negative/*.ignore`) pending a
+  connector-side fail-fast fix.
+
 ## [3.3.0] - 2026-07-07
 
 ### Added

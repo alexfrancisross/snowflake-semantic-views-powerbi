@@ -259,6 +259,14 @@ ruff check .
 python tests/integration/run_integration_tests.py [connection_name]
 ```
 
+**PQTest connector tests** (Windows only; executes the connector's actual M code end-to-end via the Power Query SDK's PQTest.exe, with committed `.pqout` snapshots - see `tests/pqtest/README.md`):
+
+```powershell
+cd tests\pqtest
+.\Set-PQCredential.ps1   # once per session (live categories)
+.\Run-PQTests.ps1        # or -Category unit for offline-only
+```
+
 **DAX Studio tests** (Windows only, requires Power BI Desktop and [DAX Studio](https://daxstudio.org/) installed - see `tests/dax-studio/README.md`):
 
 ```powershell
