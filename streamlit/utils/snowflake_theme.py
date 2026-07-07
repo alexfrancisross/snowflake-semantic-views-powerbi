@@ -1,179 +1,497 @@
-_A7='shadow_lg'
-_A6='shadow_md'
-_A5='shadow_sm'
-_A4='radius_full'
-_A3='radius_xl'
-_A2='radius_lg'
-_A1='radius_md'
-_A0='radius_sm'
-_z='font_bold'
-_y='font_semibold'
-_x='font_medium'
-_w='font_normal'
-_v='text_4xl'
-_u='text_3xl'
-_t='text_2xl'
-_s='text_xl'
-_r='text_lg'
-_q='text_base'
-_p='text_sm'
-_o='text_xs'
-_n='font_mono'
-_m='font_primary'
-_l='#E5E5E5'
-_k='#29B5E8'
-_j='disabled'
-_i='active'
-_h='info_light'
-_g='error_light'
-_f='warning_light'
-_e='warning'
-_d='success_light'
-_c='success'
-_b='purple_moon'
-_a='first_light'
-_Z='valencia_orange'
-_Y='star_blue'
-_X='blue_light'
-_W='blue_rgb'
-_V='1rem'
-_U='0.75rem'
-_T='border'
-_S='background'
-_R='primary'
-_Q='border_color'
-_P='text_tertiary'
-_O='text_secondary'
-_N='text_primary'
-_M='bg_tertiary'
-_L='bg_secondary'
-_K='bg_primary'
-_J='#7254A3'
-_I='white'
-_H='gray_lighter'
-_G='gray_medium'
-_F='gray_dark'
-_E='midnight'
-_D='blue_dark'
-_C='#FF9F36'
-_B='#75CDD7'
-_A='gray_light'
-COLORS={'blue':_k,_W:'41, 181, 232',_X:_B,_D:'#11567F',_E:'#000000',_F:'#5B5B5B',_G:'#8A8A8A',_A:_l,_H:'#F5F5F5',_I:'#FFFFFF',_Y:_B,_Z:_C,_a:'#D45B90',_b:_J,_c:'#34C759',_d:'#D4EDDA',_e:_C,_f:'#FFF3CD','error':'#DC3545',_g:'#F8D7DA','info':_k,_h:'#D1ECF1','hover':'rgba(41, 181, 232, 0.1)',_i:'rgba(41, 181, 232, 0.2)','focus':'rgba(41, 181, 232, 0.4)',_j:_l}
-DARK_COLORS={_K:'#0D1117',_L:'#161B22',_M:'#21262D',_N:'#F0F6FC',_O:'#8B949E',_P:'#6E7681',_Q:'#30363D','border_color_dark':'#484F58'}
-OBJECT_TYPE_COLORS={'SEMANTIC_VIEW':{_R:_J,_S:'#F0EBF8',_T:_J},'TABLE':{_R:_B,_S:'#E8F6F7',_T:_B},'VIEW':{_R:_C,_S:'#FFF5E6',_T:_C}}
-TYPOGRAPHY={_m:"'Arial', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",_n:"'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace",_o:_U,_p:'0.875rem',_q:_V,_r:'1.125rem',_s:'1.25rem',_t:'1.5rem',_u:'1.875rem',_v:'2.25rem','text_5xl':'3rem',_w:400,_x:500,_y:600,_z:700,'leading_tight':1.25,'leading_normal':1.5,'leading_relaxed':1.75}
-SPACING={'space_1':'0.25rem','space_2':'0.5rem','space_3':_U,'space_4':_V,'space_5':'1.25rem','space_6':'1.5rem','space_8':'2rem','space_10':'2.5rem','space_12':'3rem'}
-BORDERS={_A0:'0.25rem',_A1:'0.5rem',_A2:_U,_A3:_V,_A4:'9999px'}
-SHADOWS={_A5:'0 1px 2px 0 rgba(0, 0, 0, 0.05)',_A6:'0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',_A7:'0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)','shadow_xl':'0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'}
-def get_css_variables(dark_mode=False):
-	A=f"""
+"""
+Snowflake Design System Theme Configuration.
+
+Centralized theme constants based on official Snowflake brand guidelines.
+Reference: snowflake-assets-main/styles/snowflake-theme.css
+"""
+
+# =============================================================================
+# COLOR PALETTE - Primary
+# =============================================================================
+
+COLORS = {
+    # Primary brand colors
+    "blue": "#29B5E8",
+    "blue_rgb": "41, 181, 232",
+    "blue_light": "#75CDD7",
+    "blue_dark": "#11567F",  # Mid-Blue
+
+    # Midnight - Titles and headings
+    "midnight": "#000000",
+
+    # Grays
+    "gray_dark": "#5B5B5B",
+    "gray_medium": "#8A8A8A",
+    "gray_light": "#E5E5E5",
+    "gray_lighter": "#F5F5F5",
+    "white": "#FFFFFF",
+
+    # Secondary colors (use sparingly)
+    "star_blue": "#75CDD7",
+    "valencia_orange": "#FF9F36",
+    "first_light": "#D45B90",
+    "purple_moon": "#7254A3",
+
+    # Semantic colors
+    "success": "#34C759",
+    "success_light": "#D4EDDA",
+    "warning": "#FF9F36",
+    "warning_light": "#FFF3CD",
+    "error": "#DC3545",
+    "error_light": "#F8D7DA",
+    "info": "#29B5E8",
+    "info_light": "#D1ECF1",
+
+    # Interactive states
+    "hover": "rgba(41, 181, 232, 0.1)",
+    "active": "rgba(41, 181, 232, 0.2)",
+    "focus": "rgba(41, 181, 232, 0.4)",
+    "disabled": "#E5E5E5",
+}
+
+# =============================================================================
+# DARK THEME COLORS
+# =============================================================================
+
+DARK_COLORS = {
+    "bg_primary": "#0D1117",
+    "bg_secondary": "#161B22",
+    "bg_tertiary": "#21262D",
+    "text_primary": "#F0F6FC",
+    "text_secondary": "#8B949E",
+    "text_tertiary": "#6E7681",
+    "border_color": "#30363D",
+    "border_color_dark": "#484F58",
+}
+
+# =============================================================================
+# OBJECT TYPE COLORS (Snowflake Secondary Palette)
+# =============================================================================
+
+OBJECT_TYPE_COLORS = {
+    "SEMANTIC_VIEW": {
+        "primary": "#7254A3",      # Purple Moon
+        "background": "#F0EBF8",
+        "border": "#7254A3",
+    },
+    "TABLE": {
+        "primary": "#75CDD7",      # Star Blue
+        "background": "#E8F6F7",
+        "border": "#75CDD7",
+    },
+    "VIEW": {
+        "primary": "#FF9F36",      # Valencia Orange
+        "background": "#FFF5E6",
+        "border": "#FF9F36",
+    },
+}
+
+# =============================================================================
+# TYPOGRAPHY
+# =============================================================================
+
+TYPOGRAPHY = {
+    # Font families
+    "font_primary": "'Arial', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    "font_mono": "'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace",
+
+    # Font sizes (rem)
+    "text_xs": "0.75rem",      # 12px
+    "text_sm": "0.875rem",     # 14px
+    "text_base": "1rem",       # 16px
+    "text_lg": "1.125rem",     # 18px
+    "text_xl": "1.25rem",      # 20px
+    "text_2xl": "1.5rem",      # 24px
+    "text_3xl": "1.875rem",    # 30px
+    "text_4xl": "2.25rem",     # 36px
+    "text_5xl": "3rem",        # 48px
+
+    # Font weights
+    "font_normal": 400,
+    "font_medium": 500,
+    "font_semibold": 600,
+    "font_bold": 700,
+
+    # Line heights
+    "leading_tight": 1.25,
+    "leading_normal": 1.5,
+    "leading_relaxed": 1.75,
+}
+
+# =============================================================================
+# SPACING & BORDERS
+# =============================================================================
+
+SPACING = {
+    "space_1": "0.25rem",    # 4px
+    "space_2": "0.5rem",     # 8px
+    "space_3": "0.75rem",    # 12px
+    "space_4": "1rem",       # 16px
+    "space_5": "1.25rem",    # 20px
+    "space_6": "1.5rem",     # 24px
+    "space_8": "2rem",       # 32px
+    "space_10": "2.5rem",    # 40px
+    "space_12": "3rem",      # 48px
+}
+
+BORDERS = {
+    "radius_sm": "0.25rem",   # 4px
+    "radius_md": "0.5rem",    # 8px
+    "radius_lg": "0.75rem",   # 12px
+    "radius_xl": "1rem",      # 16px
+    "radius_full": "9999px",
+}
+
+SHADOWS = {
+    "shadow_sm": "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
+    "shadow_md": "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+    "shadow_lg": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
+    "shadow_xl": "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+}
+
+# =============================================================================
+# CSS GENERATION HELPERS
+# =============================================================================
+
+def get_css_variables(dark_mode: bool = False) -> str:
+    """Generate CSS custom properties for theming."""
+
+    # Base colors always available
+    css = f"""
     :root {{
         /* Primary Colors */
-        --sf-blue: {COLORS["blue"]};
-        --sf-blue-rgb: {COLORS[_W]};
-        --sf-blue-light: {COLORS[_X]};
-        --sf-blue-dark: {COLORS[_D]};
-        --sf-mid-blue: {COLORS[_D]};
-        --sf-midnight: {COLORS[_E]};
+        --sf-blue: {COLORS['blue']};
+        --sf-blue-rgb: {COLORS['blue_rgb']};
+        --sf-blue-light: {COLORS['blue_light']};
+        --sf-blue-dark: {COLORS['blue_dark']};
+        --sf-mid-blue: {COLORS['blue_dark']};
+        --sf-midnight: {COLORS['midnight']};
 
         /* Grays */
-        --sf-gray-dark: {COLORS[_F]};
-        --sf-gray-medium: {COLORS[_G]};
-        --sf-gray-light: {COLORS[_A]};
-        --sf-gray-lighter: {COLORS[_H]};
-        --sf-white: {COLORS[_I]};
+        --sf-gray-dark: {COLORS['gray_dark']};
+        --sf-gray-medium: {COLORS['gray_medium']};
+        --sf-gray-light: {COLORS['gray_light']};
+        --sf-gray-lighter: {COLORS['gray_lighter']};
+        --sf-white: {COLORS['white']};
 
         /* Secondary Colors */
-        --sf-star-blue: {COLORS[_Y]};
-        --sf-valencia-orange: {COLORS[_Z]};
-        --sf-first-light: {COLORS[_a]};
-        --sf-purple-moon: {COLORS[_b]};
+        --sf-star-blue: {COLORS['star_blue']};
+        --sf-valencia-orange: {COLORS['valencia_orange']};
+        --sf-first-light: {COLORS['first_light']};
+        --sf-purple-moon: {COLORS['purple_moon']};
 
         /* Semantic Colors */
-        --sf-success: {COLORS[_c]};
-        --sf-success-light: {COLORS[_d]};
-        --sf-warning: {COLORS[_e]};
-        --sf-warning-light: {COLORS[_f]};
-        --sf-error: {COLORS["error"]};
-        --sf-error-light: {COLORS[_g]};
-        --sf-info: {COLORS["info"]};
-        --sf-info-light: {COLORS[_h]};
+        --sf-success: {COLORS['success']};
+        --sf-success-light: {COLORS['success_light']};
+        --sf-warning: {COLORS['warning']};
+        --sf-warning-light: {COLORS['warning_light']};
+        --sf-error: {COLORS['error']};
+        --sf-error-light: {COLORS['error_light']};
+        --sf-info: {COLORS['info']};
+        --sf-info-light: {COLORS['info_light']};
 
         /* Interactive States */
-        --sf-hover: {COLORS["hover"]};
-        --sf-active: {COLORS[_i]};
-        --sf-focus: {COLORS["focus"]};
-        --sf-disabled: {COLORS[_j]};
+        --sf-hover: {COLORS['hover']};
+        --sf-active: {COLORS['active']};
+        --sf-focus: {COLORS['focus']};
+        --sf-disabled: {COLORS['disabled']};
 
         /* Typography */
-        --sf-font-primary: {TYPOGRAPHY[_m]};
-        --sf-font-mono: {TYPOGRAPHY[_n]};
-        --sf-text-xs: {TYPOGRAPHY[_o]};
-        --sf-text-sm: {TYPOGRAPHY[_p]};
-        --sf-text-base: {TYPOGRAPHY[_q]};
-        --sf-text-lg: {TYPOGRAPHY[_r]};
-        --sf-text-xl: {TYPOGRAPHY[_s]};
-        --sf-text-2xl: {TYPOGRAPHY[_t]};
-        --sf-text-3xl: {TYPOGRAPHY[_u]};
-        --sf-text-4xl: {TYPOGRAPHY[_v]};
-        --sf-font-normal: {TYPOGRAPHY[_w]};
-        --sf-font-medium: {TYPOGRAPHY[_x]};
-        --sf-font-semibold: {TYPOGRAPHY[_y]};
-        --sf-font-bold: {TYPOGRAPHY[_z]};
+        --sf-font-primary: {TYPOGRAPHY['font_primary']};
+        --sf-font-mono: {TYPOGRAPHY['font_mono']};
+        --sf-text-xs: {TYPOGRAPHY['text_xs']};
+        --sf-text-sm: {TYPOGRAPHY['text_sm']};
+        --sf-text-base: {TYPOGRAPHY['text_base']};
+        --sf-text-lg: {TYPOGRAPHY['text_lg']};
+        --sf-text-xl: {TYPOGRAPHY['text_xl']};
+        --sf-text-2xl: {TYPOGRAPHY['text_2xl']};
+        --sf-text-3xl: {TYPOGRAPHY['text_3xl']};
+        --sf-text-4xl: {TYPOGRAPHY['text_4xl']};
+        --sf-font-normal: {TYPOGRAPHY['font_normal']};
+        --sf-font-medium: {TYPOGRAPHY['font_medium']};
+        --sf-font-semibold: {TYPOGRAPHY['font_semibold']};
+        --sf-font-bold: {TYPOGRAPHY['font_bold']};
 
         /* Spacing */
-        --sf-space-1: {SPACING["space_1"]};
-        --sf-space-2: {SPACING["space_2"]};
-        --sf-space-3: {SPACING["space_3"]};
-        --sf-space-4: {SPACING["space_4"]};
-        --sf-space-6: {SPACING["space_6"]};
-        --sf-space-8: {SPACING["space_8"]};
+        --sf-space-1: {SPACING['space_1']};
+        --sf-space-2: {SPACING['space_2']};
+        --sf-space-3: {SPACING['space_3']};
+        --sf-space-4: {SPACING['space_4']};
+        --sf-space-6: {SPACING['space_6']};
+        --sf-space-8: {SPACING['space_8']};
 
         /* Borders & Radius */
-        --sf-radius-sm: {BORDERS[_A0]};
-        --sf-radius-md: {BORDERS[_A1]};
-        --sf-radius-lg: {BORDERS[_A2]};
-        --sf-radius-xl: {BORDERS[_A3]};
-        --sf-radius-full: {BORDERS[_A4]};
+        --sf-radius-sm: {BORDERS['radius_sm']};
+        --sf-radius-md: {BORDERS['radius_md']};
+        --sf-radius-lg: {BORDERS['radius_lg']};
+        --sf-radius-xl: {BORDERS['radius_xl']};
+        --sf-radius-full: {BORDERS['radius_full']};
 
         /* Shadows */
-        --sf-shadow-sm: {SHADOWS[_A5]};
-        --sf-shadow-md: {SHADOWS[_A6]};
-        --sf-shadow-lg: {SHADOWS[_A7]};
+        --sf-shadow-sm: {SHADOWS['shadow_sm']};
+        --sf-shadow-md: {SHADOWS['shadow_md']};
+        --sf-shadow-lg: {SHADOWS['shadow_lg']};
 
         /* Theme-dependent (Light Mode Default) */
-        --sf-bg-primary: {COLORS[_I]};
-        --sf-bg-secondary: {COLORS[_H]};
-        --sf-bg-tertiary: {COLORS[_A]};
-        --sf-text-primary: {COLORS[_E]};
-        --sf-text-secondary: {COLORS[_F]};
-        --sf-text-tertiary: {COLORS[_G]};
-        --sf-border-color: {COLORS[_A]};
+        --sf-bg-primary: {COLORS['white']};
+        --sf-bg-secondary: {COLORS['gray_lighter']};
+        --sf-bg-tertiary: {COLORS['gray_light']};
+        --sf-text-primary: {COLORS['midnight']};
+        --sf-text-secondary: {COLORS['gray_dark']};
+        --sf-text-tertiary: {COLORS['gray_medium']};
+        --sf-border-color: {COLORS['gray_light']};
     }}
     """
-	if dark_mode:A+=f"""
+
+    # Add dark mode overrides
+    if dark_mode:
+        css += f"""
         :root {{
-            --sf-bg-primary: {DARK_COLORS[_K]};
-            --sf-bg-secondary: {DARK_COLORS[_L]};
-            --sf-bg-tertiary: {DARK_COLORS[_M]};
-            --sf-text-primary: {DARK_COLORS[_N]};
-            --sf-text-secondary: {DARK_COLORS[_O]};
-            --sf-text-tertiary: {DARK_COLORS[_P]};
-            --sf-border-color: {DARK_COLORS[_Q]};
+            --sf-bg-primary: {DARK_COLORS['bg_primary']};
+            --sf-bg-secondary: {DARK_COLORS['bg_secondary']};
+            --sf-bg-tertiary: {DARK_COLORS['bg_tertiary']};
+            --sf-text-primary: {DARK_COLORS['text_primary']};
+            --sf-text-secondary: {DARK_COLORS['text_secondary']};
+            --sf-text-tertiary: {DARK_COLORS['text_tertiary']};
+            --sf-border-color: {DARK_COLORS['border_color']};
         }}
         """
-	return A
-def get_component_css():return'\n    /* Typography - Strict Snowflake Compliance */\n    /* Exclude Material Icons (data-testid="stIconMaterial") from font override */\n    body, .stApp, .stMarkdown, p, div {\n        font-family: var(--sf-font-primary) !important;\n    }\n\n    /* Apply font to spans but NOT icon spans */\n    span:not([data-testid="stIconMaterial"]):not([class*="material"]):not(.material-icons) {\n        font-family: var(--sf-font-primary) !important;\n    }\n\n    code, pre, .stCode {\n        font-family: var(--sf-font-mono) !important;\n    }\n\n    h1 {\n        font-size: var(--sf-text-4xl) !important;\n        font-weight: var(--sf-font-bold) !important;\n        color: var(--sf-midnight) !important;\n    }\n\n    h2 {\n        font-size: var(--sf-text-3xl) !important;\n        font-weight: var(--sf-font-bold) !important;\n        color: var(--sf-midnight) !important;\n    }\n\n    h3 {\n        font-size: var(--sf-text-2xl) !important;\n        font-weight: var(--sf-font-semibold) !important;\n        color: var(--sf-midnight) !important;\n    }\n\n    h4 {\n        font-size: var(--sf-text-xl) !important;\n        font-weight: var(--sf-font-semibold) !important;\n        color: var(--sf-text-primary) !important;\n    }\n\n    /* Buttons - Full Snowflake Replacement */\n    .stButton > button[kind="primary"],\n    .stDownloadButton > button {\n        background-color: var(--sf-blue) !important;\n        color: var(--sf-white) !important;\n        border: 2px solid var(--sf-blue) !important;\n        border-radius: var(--sf-radius-md) !important;\n        font-weight: var(--sf-font-bold) !important;\n        text-transform: uppercase !important;\n        letter-spacing: 0.02em !important;\n        padding: var(--sf-space-2) var(--sf-space-4) !important;\n        transition: all 0.2s ease !important;\n    }\n\n    .stButton > button[kind="primary"]:hover,\n    .stDownloadButton > button:hover {\n        background-color: var(--sf-mid-blue) !important;\n        border-color: var(--sf-mid-blue) !important;\n        box-shadow: var(--sf-shadow-md) !important;\n    }\n\n    .stButton > button[kind="secondary"] {\n        background-color: transparent !important;\n        color: var(--sf-blue) !important;\n        border: 2px solid var(--sf-blue) !important;\n        border-radius: var(--sf-radius-md) !important;\n        font-weight: var(--sf-font-bold) !important;\n    }\n\n    .stButton > button[kind="secondary"]:hover {\n        background-color: var(--sf-hover) !important;\n    }\n\n    /* Cards/Expanders - Snowflake Accent Border */\n    .stExpander {\n        background-color: var(--sf-bg-primary) !important;\n        border: 1px solid var(--sf-border-color) !important;\n        border-left: 4px solid var(--sf-blue) !important;\n        border-radius: var(--sf-radius-lg) !important;\n        box-shadow: var(--sf-shadow-sm) !important;\n    }\n\n    .stExpander:hover {\n        box-shadow: var(--sf-shadow-md) !important;\n    }\n\n    .stExpander [data-testid="stExpanderToggleIcon"] {\n        color: var(--sf-blue) !important;\n    }\n\n    /* Alerts - Full Snowflake Style */\n    div[data-testid="stAlert"] {\n        border-radius: var(--sf-radius-md) !important;\n        border-left-width: 4px !important;\n        border-left-style: solid !important;\n    }\n\n    div[data-testid="stAlert"][data-baseweb*="info"],\n    div[data-testid="stAlert"]:has([data-testid="stAlertIcon-info"]) {\n        background-color: var(--sf-info-light) !important;\n        border-left-color: var(--sf-info) !important;\n    }\n\n    div[data-testid="stAlert"][data-baseweb*="success"],\n    div[data-testid="stAlert"]:has([data-testid="stAlertIcon-success"]) {\n        background-color: var(--sf-success-light) !important;\n        border-left-color: var(--sf-success) !important;\n    }\n\n    div[data-testid="stAlert"][data-baseweb*="warning"],\n    div[data-testid="stAlert"]:has([data-testid="stAlertIcon-warning"]) {\n        background-color: var(--sf-warning-light) !important;\n        border-left-color: var(--sf-warning) !important;\n    }\n\n    div[data-testid="stAlert"][data-baseweb*="error"],\n    div[data-testid="stAlert"]:has([data-testid="stAlertIcon-error"]) {\n        background-color: var(--sf-error-light) !important;\n        border-left-color: var(--sf-error) !important;\n    }\n\n    /* Progress Steps - Snowflake Colors */\n    .step-complete {\n        background: var(--sf-success-light);\n        border-left: 4px solid var(--sf-success);\n        padding: var(--sf-space-2) var(--sf-space-4);\n        border-radius: var(--sf-radius-sm);\n        margin: var(--sf-space-1) 0;\n    }\n\n    .step-current {\n        background: var(--sf-info-light);\n        border-left: 4px solid var(--sf-blue);\n        padding: var(--sf-space-2) var(--sf-space-4);\n        border-radius: var(--sf-radius-sm);\n        margin: var(--sf-space-1) 0;\n        font-weight: var(--sf-font-medium);\n    }\n\n    .step-pending {\n        background: var(--sf-bg-secondary);\n        border-left: 4px solid var(--sf-gray-light);\n        padding: var(--sf-space-2) var(--sf-space-4);\n        border-radius: var(--sf-radius-sm);\n        margin: var(--sf-space-1) 0;\n        color: var(--sf-text-secondary);\n    }\n\n    /* Scrollable tabs */\n    .stTabs [data-baseweb="tab-list"] {\n        overflow-x: auto;\n        overflow-y: hidden;\n        flex-wrap: nowrap;\n        scrollbar-width: thin;\n        scrollbar-color: var(--sf-blue) var(--sf-bg-secondary);\n        padding-bottom: 4px;\n    }\n\n    .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {\n        height: 6px;\n    }\n\n    .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track {\n        background: var(--sf-bg-secondary);\n        border-radius: 3px;\n    }\n\n    .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb {\n        background: var(--sf-blue);\n        border-radius: 3px;\n    }\n\n    .stTabs [data-baseweb="tab"] {\n        white-space: nowrap;\n        flex-shrink: 0;\n    }\n\n    /* Select boxes and inputs */\n    .stSelectbox [data-baseweb="select"] > div {\n        border-color: var(--sf-border-color) !important;\n        border-radius: var(--sf-radius-md) !important;\n    }\n\n    .stSelectbox [data-baseweb="select"] > div:focus-within {\n        border-color: var(--sf-blue) !important;\n        box-shadow: 0 0 0 1px var(--sf-blue) !important;\n    }\n\n    /* Multiselect tags - Snowflake Blue */\n    .stMultiSelect [data-baseweb="tag"] {\n        background-color: var(--sf-blue) !important;\n        border-radius: var(--sf-radius-md) !important;\n    }\n\n    .stMultiSelect [data-baseweb="tag"] span {\n        color: var(--sf-white) !important;\n    }\n\n    .stMultiSelect [data-baseweb="tag"] [data-baseweb="tag-action"] {\n        color: var(--sf-white) !important;\n    }\n\n    .stMultiSelect [data-baseweb="tag"]:hover {\n        background-color: var(--sf-mid-blue) !important;\n    }\n\n    /* Sidebar styling */\n    section[data-testid="stSidebar"] {\n        background-color: var(--sf-bg-secondary) !important;\n        min-width: 24rem !important;\n    }\n\n    section[data-testid="stSidebar"] .stMarkdown {\n        color: var(--sf-text-primary) !important;\n    }\n    '
-def get_dark_mode_css():return f'''
+
+    return css
+
+
+def get_component_css() -> str:
+    """Generate CSS for Snowflake-styled components."""
+    return """
+    /* Typography - Strict Snowflake Compliance */
+    /* Exclude Material Icons (data-testid="stIconMaterial") from font override */
+    body, .stApp, .stMarkdown, p, div {
+        font-family: var(--sf-font-primary) !important;
+    }
+
+    /* Apply font to spans but NOT icon spans */
+    span:not([data-testid="stIconMaterial"]):not([class*="material"]):not(.material-icons) {
+        font-family: var(--sf-font-primary) !important;
+    }
+
+    code, pre, .stCode {
+        font-family: var(--sf-font-mono) !important;
+    }
+
+    h1 {
+        font-size: var(--sf-text-4xl) !important;
+        font-weight: var(--sf-font-bold) !important;
+        color: var(--sf-midnight) !important;
+    }
+
+    h2 {
+        font-size: var(--sf-text-3xl) !important;
+        font-weight: var(--sf-font-bold) !important;
+        color: var(--sf-midnight) !important;
+    }
+
+    h3 {
+        font-size: var(--sf-text-2xl) !important;
+        font-weight: var(--sf-font-semibold) !important;
+        color: var(--sf-midnight) !important;
+    }
+
+    h4 {
+        font-size: var(--sf-text-xl) !important;
+        font-weight: var(--sf-font-semibold) !important;
+        color: var(--sf-text-primary) !important;
+    }
+
+    /* Buttons - Full Snowflake Replacement */
+    .stButton > button[kind="primary"],
+    .stDownloadButton > button {
+        background-color: var(--sf-blue) !important;
+        color: var(--sf-white) !important;
+        border: 2px solid var(--sf-blue) !important;
+        border-radius: var(--sf-radius-md) !important;
+        font-weight: var(--sf-font-bold) !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.02em !important;
+        padding: var(--sf-space-2) var(--sf-space-4) !important;
+        transition: all 0.2s ease !important;
+    }
+
+    .stButton > button[kind="primary"]:hover,
+    .stDownloadButton > button:hover {
+        background-color: var(--sf-mid-blue) !important;
+        border-color: var(--sf-mid-blue) !important;
+        box-shadow: var(--sf-shadow-md) !important;
+    }
+
+    .stButton > button[kind="secondary"] {
+        background-color: transparent !important;
+        color: var(--sf-blue) !important;
+        border: 2px solid var(--sf-blue) !important;
+        border-radius: var(--sf-radius-md) !important;
+        font-weight: var(--sf-font-bold) !important;
+    }
+
+    .stButton > button[kind="secondary"]:hover {
+        background-color: var(--sf-hover) !important;
+    }
+
+    /* Cards/Expanders - Snowflake Accent Border */
+    .stExpander {
+        background-color: var(--sf-bg-primary) !important;
+        border: 1px solid var(--sf-border-color) !important;
+        border-left: 4px solid var(--sf-blue) !important;
+        border-radius: var(--sf-radius-lg) !important;
+        box-shadow: var(--sf-shadow-sm) !important;
+    }
+
+    .stExpander:hover {
+        box-shadow: var(--sf-shadow-md) !important;
+    }
+
+    .stExpander [data-testid="stExpanderToggleIcon"] {
+        color: var(--sf-blue) !important;
+    }
+
+    /* Alerts - Full Snowflake Style */
+    div[data-testid="stAlert"] {
+        border-radius: var(--sf-radius-md) !important;
+        border-left-width: 4px !important;
+        border-left-style: solid !important;
+    }
+
+    div[data-testid="stAlert"][data-baseweb*="info"],
+    div[data-testid="stAlert"]:has([data-testid="stAlertIcon-info"]) {
+        background-color: var(--sf-info-light) !important;
+        border-left-color: var(--sf-info) !important;
+    }
+
+    div[data-testid="stAlert"][data-baseweb*="success"],
+    div[data-testid="stAlert"]:has([data-testid="stAlertIcon-success"]) {
+        background-color: var(--sf-success-light) !important;
+        border-left-color: var(--sf-success) !important;
+    }
+
+    div[data-testid="stAlert"][data-baseweb*="warning"],
+    div[data-testid="stAlert"]:has([data-testid="stAlertIcon-warning"]) {
+        background-color: var(--sf-warning-light) !important;
+        border-left-color: var(--sf-warning) !important;
+    }
+
+    div[data-testid="stAlert"][data-baseweb*="error"],
+    div[data-testid="stAlert"]:has([data-testid="stAlertIcon-error"]) {
+        background-color: var(--sf-error-light) !important;
+        border-left-color: var(--sf-error) !important;
+    }
+
+    /* Progress Steps - Snowflake Colors */
+    .step-complete {
+        background: var(--sf-success-light);
+        border-left: 4px solid var(--sf-success);
+        padding: var(--sf-space-2) var(--sf-space-4);
+        border-radius: var(--sf-radius-sm);
+        margin: var(--sf-space-1) 0;
+    }
+
+    .step-current {
+        background: var(--sf-info-light);
+        border-left: 4px solid var(--sf-blue);
+        padding: var(--sf-space-2) var(--sf-space-4);
+        border-radius: var(--sf-radius-sm);
+        margin: var(--sf-space-1) 0;
+        font-weight: var(--sf-font-medium);
+    }
+
+    .step-pending {
+        background: var(--sf-bg-secondary);
+        border-left: 4px solid var(--sf-gray-light);
+        padding: var(--sf-space-2) var(--sf-space-4);
+        border-radius: var(--sf-radius-sm);
+        margin: var(--sf-space-1) 0;
+        color: var(--sf-text-secondary);
+    }
+
+    /* Scrollable tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        overflow-x: auto;
+        overflow-y: hidden;
+        flex-wrap: nowrap;
+        scrollbar-width: thin;
+        scrollbar-color: var(--sf-blue) var(--sf-bg-secondary);
+        padding-bottom: 4px;
+    }
+
+    .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
+        height: 6px;
+    }
+
+    .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track {
+        background: var(--sf-bg-secondary);
+        border-radius: 3px;
+    }
+
+    .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb {
+        background: var(--sf-blue);
+        border-radius: 3px;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    /* Select boxes and inputs */
+    .stSelectbox [data-baseweb="select"] > div {
+        border-color: var(--sf-border-color) !important;
+        border-radius: var(--sf-radius-md) !important;
+    }
+
+    .stSelectbox [data-baseweb="select"] > div:focus-within {
+        border-color: var(--sf-blue) !important;
+        box-shadow: 0 0 0 1px var(--sf-blue) !important;
+    }
+
+    /* Multiselect tags - Snowflake Blue */
+    .stMultiSelect [data-baseweb="tag"] {
+        background-color: var(--sf-blue) !important;
+        border-radius: var(--sf-radius-md) !important;
+    }
+
+    .stMultiSelect [data-baseweb="tag"] span {
+        color: var(--sf-white) !important;
+    }
+
+    .stMultiSelect [data-baseweb="tag"] [data-baseweb="tag-action"] {
+        color: var(--sf-white) !important;
+    }
+
+    .stMultiSelect [data-baseweb="tag"]:hover {
+        background-color: var(--sf-mid-blue) !important;
+    }
+
+    /* Sidebar styling */
+    section[data-testid="stSidebar"] {
+        background-color: var(--sf-bg-secondary) !important;
+        min-width: 24rem !important;
+    }
+
+    section[data-testid="stSidebar"] .stMarkdown {
+        color: var(--sf-text-primary) !important;
+    }
+    """
+
+
+def get_dark_mode_css() -> str:
+    """Generate CSS overrides for dark mode."""
+    return f"""
     /* Dark Mode Overrides */
     [data-theme="dark"] {{
-        --sf-bg-primary: {DARK_COLORS[_K]};
-        --sf-bg-secondary: {DARK_COLORS[_L]};
-        --sf-bg-tertiary: {DARK_COLORS[_M]};
-        --sf-text-primary: {DARK_COLORS[_N]};
-        --sf-text-secondary: {DARK_COLORS[_O]};
-        --sf-text-tertiary: {DARK_COLORS[_P]};
-        --sf-border-color: {DARK_COLORS[_Q]};
+        --sf-bg-primary: {DARK_COLORS['bg_primary']};
+        --sf-bg-secondary: {DARK_COLORS['bg_secondary']};
+        --sf-bg-tertiary: {DARK_COLORS['bg_tertiary']};
+        --sf-text-primary: {DARK_COLORS['text_primary']};
+        --sf-text-secondary: {DARK_COLORS['text_secondary']};
+        --sf-text-tertiary: {DARK_COLORS['text_tertiary']};
+        --sf-border-color: {DARK_COLORS['border_color']};
     }}
 
     [data-theme="dark"] body,
@@ -203,24 +521,145 @@ def get_dark_mode_css():return f'''
         border-color: var(--sf-border-color) !important;
         color: var(--sf-text-primary) !important;
     }}
-    '''
-def get_full_theme_css(dark_mode=False):return get_css_variables(dark_mode)+get_component_css()+get_dark_mode_css()
+    """
+
+
+def get_full_theme_css(dark_mode: bool = False) -> str:
+    """Get complete theme CSS including variables and components."""
+    return get_css_variables(dark_mode) + get_component_css() + get_dark_mode_css()
+
+
+# =============================================================================
+# SVG ICON HELPERS
+# =============================================================================
+
 from pathlib import Path
 import re
-ICONS={'connected':'connected.svg','analytics':'analytics.svg','verified':'verified.svg','data_engineering':'migration_tools.svg','cloud':'icon_database_013.png','rocket':'rocket.svg','code':'code.svg','docs':'docs.svg','copy':'copy_icon.svg','cube':'cube.svg','table':'table.svg','view':'view.svg','snowflake':'snowflake.svg','select':'select.svg','download':'download.svg','lock':'lock.svg','checkmark':'checkmark.svg','plus':'plus.svg','database':'database.svg','schema':'schema.svg'}
-def get_svg_icon(icon_name,size=24,color=None):
-	J='<svg ';F=color;E=icon_name;D='utf-8';B=size;import base64 as G
-	if E not in ICONS:return''
-	K=Path(__file__).parent.parent/'img';C=K/ICONS[E]
-	if not C.exists():return''
-	try:
-		if C.suffix.lower()=='.png':L=C.read_bytes();M=G.b64encode(L).decode(D);return f'<img src="data:image/png;base64,{M}" width="{B}" height="{B}" style="vertical-align: middle; display: inline-block;" />'
-		A=C.read_text(encoding=D);A=re.sub('<svg\\s+',J,A);H='width="'in A;I='height="'in A
-		if H:A=re.sub('width="[^"]*"',f'width="{B}"',A)
-		if I:A=re.sub('height="[^"]*"',f'height="{B}"',A)
-		if not H or not I:A=re.sub(J,f'<svg width="{B}" height="{B}" ',A)
-		if F:A=re.sub('fill="#[0-9A-Fa-f]{6}"',f'fill="{F}"',A)
-		N=A.encode(D);O=G.b64encode(N).decode(D);return f'<img src="data:image/svg+xml;base64,{O}" width="{B}" height="{B}" style="vertical-align: middle; display: inline-block;" />'
-	except Exception as P:return''
-def icon_header(icon_name,text,size=28,color=None):A=get_svg_icon(icon_name,size,color);return f"{A} {text}"
-def icon_button_label(icon_name,text,size=18,color=None):A=get_svg_icon(icon_name,size,color);return f"{A} {text}"
+
+# Icon name to file mapping
+ICONS = {
+    "connected": "connected.svg",
+    "analytics": "analytics.svg",
+    "verified": "verified.svg",
+    "data_engineering": "migration_tools.svg",  # Design Data Model page
+    "cloud": "icon_database_013.png",  # Create Semantic View page
+    "rocket": "rocket.svg",
+    "code": "code.svg",
+    "docs": "docs.svg",
+    "copy": "copy_icon.svg",
+    "cube": "cube.svg",
+    "table": "table.svg",
+    "view": "view.svg",
+    "snowflake": "snowflake.svg",
+    "select": "select.svg",
+    "download": "download.svg",
+    "lock": "lock.svg",
+    "checkmark": "checkmark.svg",
+    "plus": "plus.svg",
+    "database": "database.svg",
+    "schema": "schema.svg",
+}
+
+
+def get_svg_icon(icon_name: str, size: int = 24, color: str = None) -> str:
+    """
+    Load and return an icon (SVG or PNG) as a base64-encoded img tag.
+
+    Args:
+        icon_name: Name of the icon (e.g., 'connected', 'rocket')
+        size: Size in pixels (default 24)
+        color: Optional color override (hex code like '#29B5E8') - only works for SVG
+
+    Returns:
+        HTML img tag with base64-encoded image, or empty string if icon not found
+    """
+    import base64
+
+    if icon_name not in ICONS:
+        return ""
+
+    img_dir = Path(__file__).parent.parent / "img"
+    icon_path = img_dir / ICONS[icon_name]
+
+    if not icon_path.exists():
+        return ""
+
+    try:
+        # Handle PNG files
+        if icon_path.suffix.lower() == '.png':
+            png_bytes = icon_path.read_bytes()
+            b64_png = base64.b64encode(png_bytes).decode('utf-8')
+            return f'<img src="data:image/png;base64,{b64_png}" width="{size}" height="{size}" style="vertical-align: middle; display: inline-block;" />'
+
+        # Handle SVG files
+        svg_content = icon_path.read_text(encoding="utf-8")
+
+        # Normalize spaces in svg tag
+        svg_content = re.sub(r'<svg\s+', '<svg ', svg_content)
+
+        # Check if width/height attributes exist
+        has_width = 'width="' in svg_content
+        has_height = 'height="' in svg_content
+
+        if has_width:
+            svg_content = re.sub(r'width="[^"]*"', f'width="{size}"', svg_content)
+        if has_height:
+            svg_content = re.sub(r'height="[^"]*"', f'height="{size}"', svg_content)
+
+        # If no width/height, add them to the svg tag
+        if not has_width or not has_height:
+            svg_content = re.sub(
+                r'<svg ',
+                f'<svg width="{size}" height="{size}" ',
+                svg_content
+            )
+
+        # Override fill color if specified
+        if color:
+            svg_content = re.sub(
+                r'fill="#[0-9A-Fa-f]{6}"',
+                f'fill="{color}"',
+                svg_content
+            )
+
+        # Encode as base64 data URL for reliable rendering in Streamlit
+        svg_bytes = svg_content.encode('utf-8')
+        b64_svg = base64.b64encode(svg_bytes).decode('utf-8')
+
+        return f'<img src="data:image/svg+xml;base64,{b64_svg}" width="{size}" height="{size}" style="vertical-align: middle; display: inline-block;" />'
+    except Exception as e:
+        return ""
+
+
+def icon_header(icon_name: str, text: str, size: int = 28, color: str = None) -> str:
+    """
+    Create a header with an inline SVG icon.
+
+    Args:
+        icon_name: Name of the icon
+        text: Header text
+        size: Icon size in pixels (default 28)
+        color: Optional color override
+
+    Returns:
+        HTML string for use with st.markdown(unsafe_allow_html=True)
+    """
+    icon_svg = get_svg_icon(icon_name, size, color)
+    return f'{icon_svg} {text}'
+
+
+def icon_button_label(icon_name: str, text: str, size: int = 18, color: str = None) -> str:
+    """
+    Create a button label with an inline SVG icon.
+
+    Args:
+        icon_name: Name of the icon
+        text: Button text
+        size: Icon size in pixels (default 18)
+        color: Optional color override
+
+    Returns:
+        HTML string for button label
+    """
+    icon_svg = get_svg_icon(icon_name, size, color)
+    return f'{icon_svg} {text}'

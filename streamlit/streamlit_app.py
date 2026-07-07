@@ -1,52 +1,171 @@
-_V='tree_reset_counter'
-_U='selected_objects'
-_T='#29B5E8'
-_S='search_filter'
-_R='cube'
-_Q='view'
-_P='img'
-_O='selected_relationships'
-_N='wizard_step'
-_M='VIEW'
-_L='table'
-_K='manual_relationships'
-_J='TABLE'
-_I='views_metadata'
-_H='SEMANTIC_VIEW'
-_G='_exec_id'
-_F='object'
-_E='schema'
-_D='database'
-_C=None
-_B=False
-_A=True
-import streamlit as st,streamlit_antd_components as sac,pandas as pd,base64
+"""
+Streamlit App: Power BI Semantic Model Generator for Snowflake
+
+This app allows users to:
+1. Browse Snowflake objects in a tree view (Database -> Schema -> Objects)
+2. Select multiple objects (Tables, Views, Semantic Views)
+3. Generate a PBIT/PBIP project for Power BI Desktop
+4. Download the project bundled with the custom connector
+
+Supports running both locally (using ~/.snowflake/connections.toml)
+and in Streamlit in Snowflake (using get_active_session()).
+"""
+
+import streamlit as st
+import streamlit_antd_components as sac
+import pandas as pd
+import base64
 from datetime import datetime
 from pathlib import Path
-from utils.metadata_fetcher import get_databases,get_schemas,get_all_objects,get_view_metadata,get_metadata_batch_parallel,get_semantic_views,get_tables,SemanticViewMetadata,ObjectInfo,ObjectType,RelationshipMetadata,enrich_relationship_with_cardinality,assess_fan_out_risk,detect_all_relationships,detect_schema_type,identify_base_table,can_have_metrics,can_have_facts,detect_indirect_connections
+
+# Import local modules
+# Note: metadata_fetcher imports consolidated into single block
+from utils.metadata_fetcher import (
+    # Data access functions
+    get_databases,
+    get_schemas,
+    get_all_objects,
+    get_view_metadata,
+    get_metadata_batch_parallel,
+    get_semantic_views,  # For cache clearing after SV creation
+    get_tables,  # For cache clearing after table creation
+    # Data types
+    SemanticViewMetadata,
+    ObjectInfo,
+    ObjectType,
+    RelationshipMetadata,
+    # Relationship utilities
+    enrich_relationship_with_cardinality,
+    assess_fan_out_risk,
+    detect_all_relationships,
+    detect_schema_type,
+    identify_base_table,
+    can_have_metrics,
+    can_have_facts,
+    detect_indirect_connections,
+)
 from utils.tmdl_generator import generate_multi_view_tmdl_project
-from utils.zip_packager import create_zip_with_connector,create_connector_only_zip,get_connector_bytes
-from utils.pbit_generator import create_pbit_file,collect_all_relationships,detect_ambiguous_paths,detect_role_playing_dimensions
-from utils.fan_out_validator import validate_measure_dimension_combinations,detect_relationship_issue_type,RelationshipIssue
-from utils.snowflake_ddl_generator import detect_role_playing_dimensions,detect_circular_relationships,execute_ddl,DDLResult,generate_dax_measure
-from utils.snowflake_session import get_snowflake_session,get_session_info,is_running_in_snowflake,IN_SNOWFLAKE
-from utils.tooltips import inject_tooltip_css,term_with_tooltip,dimensions_label,metrics_label,facts_label,directquery_label,semantic_view_label,fan_out_label,granularity_label,inject_skeleton_css,show_skeleton_tree,show_skeleton_card,show_skeleton_progress,snowflake_spinner
-from utils.schema_visualizer import render_schema_visualizer,show_graph_legend,FLOW_AVAILABLE
-from utils.snowflake_theme import get_full_theme_css,COLORS,DARK_COLORS,icon_header,get_svg_icon
-from utils.ui_helpers import generate_project_name,get_object_icon_key,get_object_icon_html,get_connector_badge_html,display_column_metadata
-from utils.config import CONFIG,WIZARD_STEPS,OBJECT_TYPES,get_object_type_config
-from utils.session_manager import get_app_state,reset_app_state,migrate_legacy_state,init_session_state as init_app_state,sync_from_legacy,sync_to_legacy
+from utils.zip_packager import (
+    create_zip_with_connector,
+    create_connector_only_zip,
+    get_connector_bytes,
+)
+from utils.pbit_generator import (
+    create_pbit_file,
+    collect_all_relationships,
+    detect_ambiguous_paths,
+    detect_role_playing_dimensions,
+)
+from utils.fan_out_validator import (
+    validate_measure_dimension_combinations,
+    detect_relationship_issue_type,
+    RelationshipIssue,
+)
+from utils.snowflake_ddl_generator import (
+    detect_role_playing_dimensions,
+    detect_circular_relationships,
+    execute_ddl,
+    DDLResult,
+    # DAX measure generation - kept for fan-out solutions
+    generate_dax_measure,
+)
+from utils.snowflake_session import (
+    get_snowflake_session,
+    get_session_info,
+    is_running_in_snowflake,
+    IN_SNOWFLAKE,
+    render_connection_form,
+    list_available_connections,
+    reconnect_local_session,
+)
+from utils.tooltips import (
+    inject_tooltip_css,
+    term_with_tooltip,
+    dimensions_label,
+    metrics_label,
+    facts_label,
+    directquery_label,
+    semantic_view_label,
+    fan_out_label,
+    granularity_label,
+    inject_skeleton_css,
+    show_skeleton_tree,
+    show_skeleton_card,
+    show_skeleton_progress,
+    snowflake_spinner,
+)
+from utils.schema_visualizer import (
+    render_schema_visualizer,
+    show_graph_legend,
+    FLOW_AVAILABLE,
+)
+from utils.snowflake_theme import get_full_theme_css, COLORS, DARK_COLORS, icon_header, get_svg_icon
+from utils.ui_helpers import (
+    generate_project_name,
+    get_object_icon_key,
+    get_object_icon_html,
+    get_connector_badge_html,
+    display_column_metadata,
+)
+
+# Import new Phase 2 modules
+from utils.config import CONFIG, WIZARD_STEPS, OBJECT_TYPES, get_object_type_config
+from utils.session_manager import (
+    get_app_state,
+    reset_app_state,
+    migrate_legacy_state,
+    init_session_state as init_app_state,
+    sync_from_legacy,
+    sync_to_legacy,
+)
 from utils.relationship_suggester import create_manual_relationship
-from utils.validation import validate_identifier,validate_semantic_view_name,validate_qualified_name,sanitize_for_display,escape_identifier,build_qualified_name,ValidationResult
-from utils.theme_loader import initialize_theme,inject_all_styles,inject_scripts
-from utils.logging_config import get_logger,log_user_action,log_performance
-from utils.error_handling import handle_error,safe_execute,error_boundary,SnowflakeConnectionError,MetadataFetchError
-from pages import render_current_step,is_page_implemented,PageContext
-logger=get_logger(__name__)
+from utils.validation import (
+    validate_identifier,
+    validate_semantic_view_name,
+    validate_qualified_name,
+    sanitize_for_display,
+    escape_identifier,
+    build_qualified_name,
+    ValidationResult,
+)
+from utils.theme_loader import initialize_theme, inject_all_styles, inject_scripts
+
+# Import Phase 3 modules - logging and error handling
+from utils.logging_config import get_logger, log_user_action, log_performance
+from utils.error_handling import (
+    handle_error,
+    safe_execute,
+    error_boundary,
+    SnowflakeConnectionError,
+    MetadataFetchError,
+)
+
+# Import pages module for future incremental migration
+from pages import render_current_step, is_page_implemented, PageContext
+
+# Initialize module logger
+logger = get_logger(__name__)
+
+
+# === Snowflake Design System Theme ===
 def inject_custom_css():
-	A=st.session_state.get('dark_mode',_B);initialize_theme(A);B=get_full_theme_css(A);st.markdown(f'''
+    """Inject Snowflake Design System compliant CSS theme.
+
+    Uses the centralized theme_loader for organized CSS/JS injection.
+    """
+    # Get dark mode state from session
+    dark_mode = st.session_state.get("dark_mode", False)
+
+    # Use new centralized theme loader
+    initialize_theme(dark_mode)
+
+    # Legacy: keep the old injection for backward compatibility during transition
+    # This can be removed once the theme_loader is fully tested
+    theme_css = get_full_theme_css(dark_mode)
+
+    st.markdown(f"""
     <style>
-    {B}
+    {theme_css}
 
     /* Reduce top padding in main content area */
     .main .block-container {{
@@ -113,355 +232,1495 @@ def inject_custom_css():
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }}
     </style>
-    ''',unsafe_allow_html=_A)
-	if A:st.markdown("\n        <script>\n        document.documentElement.setAttribute('data-theme', 'dark');\n        </script>\n        ",unsafe_allow_html=_A)
-	else:st.markdown("\n        <script>\n        document.documentElement.removeAttribute('data-theme');\n        </script>\n        ",unsafe_allow_html=_A)
-	inject_tooltip_css();inject_skeleton_css();inject_expander_state_js()
-def inject_expander_state_js():st.markdown('\n    <script>\n    (function() {\n        const STORAGE_KEY = \'pbi_expander_states_v2\';\n        let isApplying = false;\n\n        // Get stored states from localStorage\n        function getStoredStates() {\n            try {\n                return JSON.parse(localStorage.getItem(STORAGE_KEY) || \'{}\');\n            } catch (e) {\n                return {};\n            }\n        }\n\n        // Save state to localStorage\n        function saveState(key, isOpen) {\n            if (isApplying) return; // Don\'t save during apply phase\n            const states = getStoredStates();\n            states[key] = isOpen;\n            localStorage.setItem(STORAGE_KEY, JSON.stringify(states));\n        }\n\n        // Get stable key from expander label (remove dynamic parts like counts)\n        function getExpanderKey(details) {\n            const summary = details.querySelector(\'summary\');\n            if (!summary) return null;\n\n            let text = summary.textContent.trim();\n            // Skip leading non-letter characters (emojis, icons, etc)\n            text = text.replace(/^[^A-Za-z]+/, \'\');\n            // Extract just the main label before parentheses or numbers\n            // e.g., "Relationships (0/2 selected)" -> "Relationships"\n            // e.g., "Selected Objects (5 objects, 73 columns)" -> "Selected Objects"\n            // e.g., "Schema Diagram" -> "Schema Diagram"\n            const match = text.match(/^([A-Za-z][A-Za-z\\s\\-]+?)(?:\\s*[\\(\\[0-9]|$)/);\n            if (match) {\n                return match[1].trim();\n            }\n            // Fallback: first 20 chars\n            return text.substring(0, 20).trim();\n        }\n\n        // Apply stored states to expanders\n        function applyStoredStates() {\n            isApplying = true;\n            const states = getStoredStates();\n            const expanders = document.querySelectorAll(\'details[data-testid="stExpander"]\');\n\n            expanders.forEach(details => {\n                const key = getExpanderKey(details);\n                if (key && states.hasOwnProperty(key)) {\n                    if (details.open !== states[key]) {\n                        details.open = states[key];\n                    }\n                }\n            });\n            isApplying = false;\n        }\n\n        // Listen for expander toggles\n        function setupListeners() {\n            document.addEventListener(\'toggle\', function(e) {\n                if (e.target.matches(\'details[data-testid="stExpander"]\')) {\n                    const key = getExpanderKey(e.target);\n                    if (key) {\n                        saveState(key, e.target.open);\n                    }\n                }\n            }, true);\n        }\n\n        // Debounce function\n        let applyTimeout = null;\n        function debouncedApply() {\n            if (applyTimeout) clearTimeout(applyTimeout);\n            applyTimeout = setTimeout(applyStoredStates, 100);\n        }\n\n        // Initialize\n        function init() {\n            setupListeners();\n            // Apply states after DOM is ready\n            debouncedApply();\n            // Watch for Streamlit rerenders\n            const observer = new MutationObserver((mutations) => {\n                // Only apply if new expanders were added\n                for (const mutation of mutations) {\n                    if (mutation.addedNodes.length > 0) {\n                        debouncedApply();\n                        break;\n                    }\n                }\n            });\n            observer.observe(document.body, { childList: true, subtree: true });\n        }\n\n        // Run when DOM is ready\n        if (document.readyState === \'loading\') {\n            document.addEventListener(\'DOMContentLoaded\', init);\n        } else {\n            init();\n        }\n    })();\n    </script>\n    ',unsafe_allow_html=_A)
-def get_wizard_step():
-	if _N not in st.session_state:st.session_state.wizard_step=0
-	return st.session_state.wizard_step
+    """, unsafe_allow_html=True)
+
+    # Apply dark mode attribute via JavaScript if enabled
+    if dark_mode:
+        st.markdown("""
+        <script>
+        document.documentElement.setAttribute('data-theme', 'dark');
+        </script>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <script>
+        document.documentElement.removeAttribute('data-theme');
+        </script>
+        """, unsafe_allow_html=True)
+
+    # Inject tooltip and skeleton CSS
+    inject_tooltip_css()
+    inject_skeleton_css()
+    # Inject expander state persistence
+    inject_expander_state_js()
+
+
+def inject_expander_state_js():
+    """Inject JavaScript to persist expander open/closed state across reruns."""
+    st.markdown("""
+    <script>
+    (function() {
+        const STORAGE_KEY = 'pbi_expander_states_v2';
+        let isApplying = false;
+
+        // Get stored states from localStorage
+        function getStoredStates() {
+            try {
+                return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+            } catch (e) {
+                return {};
+            }
+        }
+
+        // Save state to localStorage
+        function saveState(key, isOpen) {
+            if (isApplying) return; // Don't save during apply phase
+            const states = getStoredStates();
+            states[key] = isOpen;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(states));
+        }
+
+        // Get stable key from expander label (remove dynamic parts like counts)
+        function getExpanderKey(details) {
+            const summary = details.querySelector('summary');
+            if (!summary) return null;
+
+            let text = summary.textContent.trim();
+            // Skip leading non-letter characters (emojis, icons, etc)
+            text = text.replace(/^[^A-Za-z]+/, '');
+            // Extract just the main label before parentheses or numbers
+            // e.g., "Relationships (0/2 selected)" -> "Relationships"
+            // e.g., "Selected Objects (5 objects, 73 columns)" -> "Selected Objects"
+            // e.g., "Schema Diagram" -> "Schema Diagram"
+            const match = text.match(/^([A-Za-z][A-Za-z\\s\\-]+?)(?:\\s*[\\(\\[0-9]|$)/);
+            if (match) {
+                return match[1].trim();
+            }
+            // Fallback: first 20 chars
+            return text.substring(0, 20).trim();
+        }
+
+        // Apply stored states to expanders
+        function applyStoredStates() {
+            isApplying = true;
+            const states = getStoredStates();
+            const expanders = document.querySelectorAll('details[data-testid="stExpander"]');
+
+            expanders.forEach(details => {
+                const key = getExpanderKey(details);
+                if (key && states.hasOwnProperty(key)) {
+                    if (details.open !== states[key]) {
+                        details.open = states[key];
+                    }
+                }
+            });
+            isApplying = false;
+        }
+
+        // Listen for expander toggles
+        function setupListeners() {
+            document.addEventListener('toggle', function(e) {
+                if (e.target.matches('details[data-testid="stExpander"]')) {
+                    const key = getExpanderKey(e.target);
+                    if (key) {
+                        saveState(key, e.target.open);
+                    }
+                }
+            }, true);
+        }
+
+        // Debounce function
+        let applyTimeout = null;
+        function debouncedApply() {
+            if (applyTimeout) clearTimeout(applyTimeout);
+            applyTimeout = setTimeout(applyStoredStates, 100);
+        }
+
+        // Initialize
+        function init() {
+            setupListeners();
+            // Apply states after DOM is ready
+            debouncedApply();
+            // Watch for Streamlit rerenders
+            const observer = new MutationObserver((mutations) => {
+                // Only apply if new expanders were added
+                for (const mutation of mutations) {
+                    if (mutation.addedNodes.length > 0) {
+                        debouncedApply();
+                        break;
+                    }
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
+
+        // Run when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    })();
+    </script>
+    """, unsafe_allow_html=True)
+
+
+def get_wizard_step() -> int:
+    """Get current wizard step, initializing to 0 if not set.
+
+    The wizard has 3 steps (0-2):
+        0: Review Selected Objects (home page - objects selected via sidebar)
+        1: Design Data Model
+        2: Download PBI Workbook
+
+    Returns:
+        Current wizard step index (0-2).
+    """
+    if "wizard_step" not in st.session_state:
+        st.session_state.wizard_step = 0
+    return st.session_state.wizard_step
+
+
 def show_progress_indicator():
-	L='transparent';K='#d9d9d9';J='#52c41a';F='normal';M=bool(st.session_state.get(_I));N=len(st.session_state.get(_I,[]));O=N<=1 or st.session_state.get(_O)is not _C;G=get_wizard_step();H=[('1. Review Selected Objects',_A),('2. Design Data Model',M),('3. Generate Output',O)];A='<div style="display: flex; justify-content: space-between; align-items: center; margin: 4px 0;">'
-	for(E,(P,Q))in enumerate(H):
-		R=E==G;I=E<G;S=not Q
-		if R:B=_T;C='#E6F7FC';D='600'
-		elif I:B=J;C='#f6ffed';D=F
-		elif S:B=K;C=L;D=F
-		else:B='#666';C=L;D=F
-		A+=f'\n        <div style="flex: 1; text-align: center; padding: 8px 12px; border-radius: 4px; background: {C};">\n            <span style="color: {B}; font-weight: {D}; font-size: 14px;">{P}</span>\n        </div>\n        '
-		if E<len(H)-1:T=J if I else K;A+=f'<div style="flex: 0.5; height: 2px; background: {T};"></div>'
-	A+='</div>';st.markdown(A,unsafe_allow_html=_A)
-def load_svg_icon(icon_name):
-	B=Path(__file__).parent/_P;A=B/f"{icon_name}.svg"
-	if A.exists():C=A.read_text(encoding='utf-8');D=base64.b64encode(C.encode()).decode();return f"data:image/svg+xml;base64,{D}"
-	return''
-ICON_DATA={_L:load_svg_icon(_L),_Q:load_svg_icon(_Q),_R:load_svg_icon(_R),_D:load_svg_icon(_D),_E:load_svg_icon(_E)}
-OBJECT_TYPE_ICONS={_H:_R,_M:_Q,_J:_L}
-def get_icon_html(icon_key,size=16):
-	A=ICON_DATA.get(icon_key,'')
-	if A:return f'<img src="{A}" width="{size}" height="{size}" style="vertical-align: middle; margin-right: 4px;">'
-	return''
-def init_session_state():
-	init_app_state()
-	if _N not in st.session_state:st.session_state.wizard_step=0
-def toggle_object_selection(database,schema,name,object_type):
-	A=database,schema,name,object_type
-	if A in st.session_state.selected_objects:st.session_state.selected_objects.remove(A)
-	else:st.session_state.selected_objects.append(A)
-def is_object_selected(database,schema,name,object_type):return(database,schema,name,object_type)in st.session_state.selected_objects
-def matches_search(search_term,database,schema='',obj_name=''):
-	A=search_term
-	if not A:return _A
-	B=f"{database}.{schema}.{obj_name}".upper();return A in B
-def build_tree_items(databases,search_term=''):
-	D=search_term;L=[];F={}
-	for A in databases:
-		if D:
-			Q=D in A.upper();G=_B
-			if A in st.session_state.loaded_schemas:
-				for B in st.session_state.loaded_schemas[A]:
-					if matches_search(D,A,B):G=_A;break
-					E=A,B
-					if E in st.session_state.loaded_objects:
-						for C in st.session_state.loaded_objects[E]:
-							if matches_search(D,A,B,C.name):G=_A;break
-			if not Q and not G:continue
-		M=A;F[M]=_D,A,_C,_C,_C;H=[]
-		if A in st.session_state.loaded_schemas:
-			for B in st.session_state.loaded_schemas[A]:
-				if D:
-					R=matches_search(D,A,B);E=A,B;N=_B
-					if E in st.session_state.loaded_objects:
-						for C in st.session_state.loaded_objects[E]:
-							if matches_search(D,A,B,C.name):N=_A;break
-					if not R and not N:continue
-				O=f"{A}.{B}";F[O]=_E,A,B,_C,_C;I=[];E=A,B
-				if E in st.session_state.loaded_objects:
-					for C in st.session_state.loaded_objects[E]:
-						if D and not matches_search(D,A,B,C.name):continue
-						P=f"{A}.{B}.{C.name}";F[P]=_F,A,B,C.name,C.object_type
-						if C.object_type==_H:J=sac.BsIcon(name='box',color='#7254A3');K=sac.Tag('Semantic',color='purple')
-						elif C.object_type==_M:J=sac.BsIcon(name='eye',color='#FF9F36');K=sac.Tag('View',color='orange')
-						else:J=sac.BsIcon(name=_L,color='#75CDD7');K=sac.Tag('Table',color='cyan')
-						I.append(sac.TreeItem(P,icon=J,tag=K))
-				else:I.append(sac.TreeItem('⏳ Loading objects...',disabled=_A))
-				H.append(sac.TreeItem(O,icon='folder2-open',children=I))
-		else:H.append(sac.TreeItem('⏳ Loading schemas...',disabled=_A))
-		L.append(sac.TreeItem(M,icon=_D,children=H))
-	return L,F
-def _clean_tree_session_state():
-	if _U in st.session_state:
-		E=[]
-		for B in st.session_state.selected_objects:
-			if B is not _C and isinstance(B,(list,tuple))and len(B)>=4:
-				if all(A is not _C for A in B[:4]):E.append(B)
-		st.session_state.selected_objects=E
-	if'expanded_nodes'in st.session_state:st.session_state.expanded_nodes=[A for A in st.session_state.expanded_nodes if A is not _C and isinstance(A,str)]
-	C=[]
-	for A in list(st.session_state.keys()):
-		if A.startswith('object_tree_'):
-			D=st.session_state[A]
-			if D is _C:C.append(A)
-			elif isinstance(D,list)and any(A is _C for A in D):C.append(A)
-	for A in C:del st.session_state[A]
-def _get_pending_metadata_count():
-	if not st.session_state.selected_objects:return 0
-	A={(A.database,A.schema,A.view)for A in st.session_state.views_metadata};B=sum(1 for(B,C,D,E)in st.session_state.selected_objects if(B,C,D)not in A);return B
-def _get_spinner_gif_base64():
-	import base64 as B;from pathlib import Path;A=Path(__file__).parent/_P/'loading_spinner.gif'
-	if A.exists():return B.b64encode(A.read_bytes()).decode('utf-8')
-	return''
-def _render_status_card_html(selected_count,is_read_only=_B,pending_load_count=0):
-	F=pending_load_count;E=is_read_only;A=selected_count
-	if A==0:return''
-	C=F>0 and not E
-	if E:B='<span style="font-size:18px;">🔒</span>';D=f"<strong>{A}</strong> object(s) locked"
-	elif C:
-		G=_get_spinner_gif_base64()
-		if G:B=f'<img src="data:image/gif;base64,{G}" width="20" height="20" style="vertical-align: middle;" />'
-		else:B='<span style="font-size:18px;">⏳</span>'
-		D=f'<strong>{A}</strong> selected, <strong style="color:#29B5E8">{F}</strong> loading...'
-	else:B='<span style="font-size:18px;">✓</span>';D=f"<strong>{A}</strong> object(s) selected"
-	H=''
-	if C:H='\n        <style>\n            .selection-status-card.loading {\n                border-left-color: #29B5E8 !important;\n                background: linear-gradient(135deg, #E8F6FA 0%, #F0FAFC 100%) !important;\n            }\n        </style>\n        '
-	I='selection-status-card loading'if C else'selection-status-card';return f'''
-        {H}
-        <div class="{I}">
-            <span style="margin-right:10px;">{B}</span>
-            {D}
+    """Display 3-step clickable progress indicator."""
+    has_metadata = bool(st.session_state.get("views_metadata"))
+    metadata_count = len(st.session_state.get("views_metadata", []))
+    has_relationships = metadata_count <= 1 or st.session_state.get("selected_relationships") is not None
+
+    current_step = get_wizard_step()
+
+    # Create step items - disable steps that aren't accessible yet
+    # Note: Object selection is now done via sidebar, not a separate step
+    # Static progress indicator (non-interactive to avoid sac.tree interaction bug)
+    steps = [
+        ("1. Review Selected Objects", True),
+        ("2. Design Data Model", has_metadata),
+        ("3. Generate Output", has_relationships),
+    ]
+
+    # Build HTML for static step indicator
+    step_html = '<div style="display: flex; justify-content: space-between; align-items: center; margin: 4px 0;">'
+    for i, (title, enabled) in enumerate(steps):
+        is_current = i == current_step
+        is_completed = i < current_step
+        is_disabled = not enabled
+
+        # Colors
+        if is_current:
+            color = "#29B5E8"  # Snowflake blue
+            bg_color = "#E6F7FC"
+            font_weight = "600"
+        elif is_completed:
+            color = "#52c41a"  # Green
+            bg_color = "#f6ffed"
+            font_weight = "normal"
+        elif is_disabled:
+            color = "#d9d9d9"
+            bg_color = "transparent"
+            font_weight = "normal"
+        else:
+            color = "#666"
+            bg_color = "transparent"
+            font_weight = "normal"
+
+        step_html += f'''
+        <div style="flex: 1; text-align: center; padding: 8px 12px; border-radius: 4px; background: {bg_color};">
+            <span style="color: {color}; font-weight: {font_weight}; font-size: 14px;">{title}</span>
         </div>
-    '''
-def render_selection_status_header(is_read_only=_B,pending_load_count=0):
-	C=len(st.session_state.selected_objects);A=st.empty();B=_render_status_card_html(C,is_read_only,pending_load_count)
-	if B:A.markdown(B,unsafe_allow_html=_A)
-	return A
-def update_status_header_loading(placeholder,pending_count):
-	B=len(st.session_state.selected_objects);A=_render_status_card_html(B,is_read_only=_B,pending_load_count=pending_count)
-	if A:placeholder.markdown(A,unsafe_allow_html=_A)
-def _get_pre_selected_labels():
-	A=[];D=st.session_state.get(_G,0);logger.debug(f"[EXEC:{D}][PRE_SELECT] selected_objects count: {len(st.session_state.selected_objects)}")
-	for B in st.session_state.selected_objects:
-		if B is _C or not isinstance(B,(list,tuple))or len(B)<4:continue
-		E,F,C,H=B
-		if C is not _C and isinstance(C,str):G=f"{E}.{F}.{C}";A.append(G)
-	logger.debug(f"[EXEC:{D}][PRE_SELECT] Qualified labels to pass to tree: {len(A)}, first 5: {A[:5]}");return A if A else _C
-def _get_open_index():
-	_ensure_selected_parents_expanded()
-	if not st.session_state.expanded_nodes:return
-	A=[A for A in st.session_state.expanded_nodes if A is not _C and isinstance(A,str)];return A if A else _C
-def _ensure_selected_parents_expanded():
-	if not st.session_state.selected_objects:return
-	C=set();D=set()
-	for B in st.session_state.selected_objects:
-		if B is _C or not isinstance(B,(list,tuple))or len(B)<4:continue
-		A,E,G,H=B
-		if A:C.add(A)
-		if A and E:D.add(f"{A}.{E}")
-	for A in C:
-		if A not in st.session_state.expanded_nodes:st.session_state.expanded_nodes.append(A)
-	for F in D:
-		if F not in st.session_state.expanded_nodes:st.session_state.expanded_nodes.append(F)
-def _parse_tree_result(result):
-	A=result
-	if hasattr(A,'selected')and hasattr(A,'expanded'):B=A.selected if isinstance(A.selected,list)else[A.selected]if A.selected else[];C=A.expanded or[]
-	else:B=A if isinstance(A,list)else[A]if A else[];C=[]
-	B=[A for A in B if A is not _C and not str(A).startswith('⏳')];return B,C
-def _sync_expansion_state(expanded,open_index):
-	E=open_index;D=expanded;G=st.session_state.get(_G,0);A=set(A for A in D if A is not _C)if D else set();F=set(st.session_state.expanded_nodes)if st.session_state.expanded_nodes else set();B=set(E)if E else set();C=A|B|F;logger.debug(f"[EXEC:{G}][SYNC_EXPAND] tree_returned={len(A)}, passed={len(B)}, saved={len(F)}, merged={len(C)}")
-	if A and A!=B:st.session_state.expanded_nodes=list(A|B)
-	elif C:st.session_state.expanded_nodes=list(C)
-	else:st.session_state.expanded_nodes=[]
-def _process_lazy_loading(session,label_map):
-	L=label_map;K=session;D=st.session_state.get(_G,0);F=_B;G=list(st.session_state.expanded_nodes or[]);logger.debug(f"[EXEC:{D}][LAZY_LOAD] Processing {len(G)} expanded nodes: {G[:5]}")
-	for M in G:
-		if M not in L:continue
-		C=L[M]
-		if C[0]==_D:
-			A=C[1]
-			if A not in st.session_state.loaded_schemas:
-				with snowflake_spinner(f"Loading schemas for {A}..."):
-					try:
-						H=get_schemas(K,A);st.session_state.loaded_schemas[A]=H;F=_A;logger.debug(f"[EXEC:{D}][LAZY_LOAD] Loaded {len(H)} schemas for {A}")
-						for I in H:
-							B=f"{A}.{I}"
-							if B not in st.session_state.expanded_nodes:st.session_state.expanded_nodes.append(B);logger.debug(f"[EXEC:{D}][LAZY_LOAD] Auto-expanded schema: {B}")
-					except Exception as J:st.error(f"Error loading schemas: {J}")
-			else:
-				for I in st.session_state.loaded_schemas.get(A,[]):
-					B=f"{A}.{I}"
-					if B not in st.session_state.expanded_nodes:st.session_state.expanded_nodes.append(B)
-		elif C[0]==_E:
-			A,E=C[1],C[2];N=A,E
-			if N not in st.session_state.loaded_objects:
-				with snowflake_spinner(f"Loading objects for {E}..."):
-					try:O=get_all_objects(K,A,E);st.session_state.loaded_objects[N]=O;F=_A;logger.debug(f"[EXEC:{D}][LAZY_LOAD] Loaded {len(O)} objects for {A}.{E}")
-					except Exception as J:st.error(f"Error loading objects: {J}")
-	return F
-def _process_tree_selections(session,selected,label_map):
-	T=selected;S=session;F=label_map;N=_B;logger.debug(f"[PROCESS_SEL] Input: {len(T)} selected items from tree");logger.debug(f"[PROCESS_SEL] Current selected_objects: {len(st.session_state.selected_objects)}");U=set()
-	for(E,B)in F.items():
-		if B[0]==_F:U.add(B[3])
-	logger.debug(f"[PROCESS_SEL] Visible objects in tree: {len(U)}");O=set()
-	for E in T:
-		if E in F:
-			B=F[E]
-			if B[0]==_D:O.add(B[1])
-			elif B[0]==_F:O.add(B[1])
-	logger.debug(f"[PROCESS_SEL] Selected databases: {O}");b=bool(st.session_state.get(_S,'').strip())
-	if st.session_state.get('_just_reset',_B):G=[];st.session_state._just_reset=_B;logger.debug('[PROCESS_SEL] Just reset - not preserving any selections')
-	else:
-		G=[]
-		for(A,P,H,Q)in st.session_state.selected_objects:
-			c=H not in U
-			if b:
-				if c:G.append((A,P,H,Q))
-			elif c and A in O:G.append((A,P,H,Q))
-		logger.debug(f"[PROCESS_SEL] Preserved (hidden, filter_active={b}): {len(G)}")
-	I=[]
-	for E in T:
-		if E not in F:continue
-		B=F[E]
-		if B[0]==_D:
-			A=B[1];V=_B
-			if A not in st.session_state.loaded_schemas:
-				with snowflake_spinner(f"Loading schemas for {A}..."):
-					try:f=get_schemas(S,A);st.session_state.loaded_schemas[A]=f;V=_A
-					except Exception as J:st.error(f"Error loading schemas for {A}: {J}");continue
-			if A not in st.session_state.expanded_nodes:st.session_state.expanded_nodes.append(A)
-			g=st.session_state.loaded_schemas.get(A,[])
-			for C in g:
-				D=A,C
-				if D not in st.session_state.loaded_objects:
-					with snowflake_spinner(f"Loading objects for {C}..."):
-						try:W=get_all_objects(S,A,C);st.session_state.loaded_objects[D]=W;V=_A
-						except Exception as J:st.error(f"Error loading objects for {C}: {J}");continue
-				K=f"{A}.{C}"
-				if K not in st.session_state.expanded_nodes:st.session_state.expanded_nodes.append(K)
-				for L in st.session_state.loaded_objects.get(D,[]):I.append((A,C,L.name,L.object_type))
-			if V:N=_A
-			continue
-		if B[0]==_F:j,A,P,H,Q=B;I.append((A,P,H,Q))
-		elif B[0]==_E:
-			A=B[1];C=B[2];D=A,C
-			if D not in st.session_state.loaded_objects:
-				with snowflake_spinner(f"Loading objects for {C}..."):
-					try:W=get_all_objects(S,A,C);st.session_state.loaded_objects[D]=W;N=_A
-					except Exception as J:st.error(f"Error loading objects for {C}: {J}");continue
-				K=f"{A}.{C}"
-				if K not in st.session_state.expanded_nodes:st.session_state.expanded_nodes.append(K)
-			for L in st.session_state.loaded_objects.get(D,[]):I.append((A,C,L.name,L.object_type))
-	h=G+I;d=set();R=[]
-	for X in h:
-		if X not in d:d.add(X);R.append(X)
-	M=st.session_state.get(_G,0);logger.debug(f"[EXEC:{M}][PROCESS_SEL] new_object_selections={len(I)}, unique_selections={len(R)}");Y=set(st.session_state.selected_objects);Z=set(R);e=Y!=Z;i=Z-Y;a=Y-Z;logger.debug(f"[EXEC:{M}][PROCESS_SEL] Changes: added={len(i)}, removed={len(a)}, changed={e}")
-	if a:logger.debug(f"[EXEC:{M}][PROCESS_SEL] Removed items: {list(a)[:5]}")
-	st.session_state.selected_objects=R;logger.debug(f"[EXEC:{M}][STATE_UPDATE] selected_objects now has {len(st.session_state.selected_objects)} items")
-	if e:logger.debug(f"[EXEC:{M}][PROCESS_SEL] Selections changed - setting needs_rerun=True");N=_A
-	return N
-def _sync_metadata_with_selections(session):
-	C=st.session_state.get(_G,0);I=len(st.session_state.views_metadata);D={(A,B,C)for(A,B,C,D)in st.session_state.selected_objects};E={(A.database,A.schema,A.view)for A in st.session_state.views_metadata};logger.debug(f"[EXEC:{C}][METADATA_SYNC] selected_keys={len(D)}, loaded_keys={len(E)}")
-	if D:logger.debug(f"[EXEC:{C}][METADATA_SYNC] First 3 selected: {list(D)[:3]}")
-	if E:logger.debug(f"[EXEC:{C}][METADATA_SYNC] First 3 loaded: {list(E)[:3]}")
-	st.session_state.views_metadata=[A for A in st.session_state.views_metadata if(A.database,A.schema,A.view)in D];J=len(st.session_state.views_metadata)<I;A={A.view for A in st.session_state.views_metadata}
-	if _K in st.session_state:st.session_state.manual_relationships=[B for B in st.session_state.manual_relationships if B.from_table in A and B.to_table in A]
-	if'bridge_relationships'in st.session_state:st.session_state.bridge_relationships=[B for B in st.session_state.bridge_relationships if B.from_table in A and B.to_table in A]
-	if _O in st.session_state and A:K={B for(B,C)in st.session_state.selected_relationships.items()if any(A in B for A in A)};st.session_state.selected_relationships={A:B for(A,B)in st.session_state.selected_relationships.items()if A in K}
-	if'active_relationship_choices'in st.session_state and A:st.session_state.active_relationship_choices={B:C for(B,C)in st.session_state.active_relationship_choices.items()if any(A in B for A in A)}
-	B=[(A,B,C,D)for(A,B,C,D)in st.session_state.selected_objects if(A,B,C)not in E];F=_B
-	if B:
-		logger.debug(f"[EXEC:{C}][METADATA_SYNC] Loading {len(B)} objects: {B[:3]}");G=st.session_state.get('_status_header_placeholder')
-		if G:update_status_header_loading(G,len(B))
-		try:
-			with snowflake_spinner(f"Loading metadata for {len(B)} object(s)..."):L=get_metadata_batch_parallel(session,B,max_workers=8);st.session_state.views_metadata.extend(L)
-			F=_A;logger.debug(f"[EXEC:{C}][METADATA_SYNC] Loaded {len(B)} objects, total metadata: {len(st.session_state.views_metadata)}")
-		except Exception as H:logger.error(f"[EXEC:{C}][METADATA_SYNC] Failed to load metadata: {H}",exc_info=_A);st.error(f"Failed to load metadata for selected objects: {H}")
-	return F or J
-def render_tree_navigation(session,databases):
-	c=databases;T=session;st.markdown(f"### {icon_header('select','Select Objects',size=24)}",unsafe_allow_html=_A)
-	@st.fragment
-	def A():
-		r=st.session_state.get(_N,0);D=r>=2;s=_get_pending_metadata_count();t=render_selection_status_header(D,s);st.session_state._status_header_placeholder=t;_clean_tree_session_state();E=st.text_input('🔍 Filter databases',placeholder='Type to filter by database name...',key=_S).strip().upper();U=st.session_state.get('_prev_search_filter','');K=E!=U;u=K and not E and U;d=K and E;st.session_state._prev_search_filter=E
-		if K:logger.debug(f"[TREE_NAV] Filter changed: '{U}' -> '{E}' (cleared={u}, activated={d})")
-		if not c:st.warning('No databases found.');return
-		L,F=build_tree_items(c,E)
-		if not L:st.info('No matching databases found.');return
-		A=_get_pre_selected_labels();e=_get_open_index();G=set()
-		def f(items):
-			for A in items:
-				G.add(A.label)
-				if A.children:f(A.children)
-		f(L);V=_B;logger.debug(f"[TREE_NAV] all_tree_labels count: {len(G)}")
-		if d:A=[];logger.debug(f"[TREE_NAV] Filter activated - forcing empty pre_selected (unchecked)")
-		elif A:
-			C=[A for A in A if A in G];W=len(A)-len(C);logger.debug(f"[TREE_NAV] pre_selected={len(A)}, valid={len(C)}, missing={W}")
-			if W>0:
-				M=set()
-				for H in A:
-					if H not in G:
-						N=H.split('.')
-						if len(N)>=2:
-							g=N[0];h=f"{N[0]}.{N[1]}"
-							if h in G:M.add(h)
-							elif g in G:M.add(g)
-				C=list(set(C)|M);logger.debug(f"[TREE_NAV] Added parent labels: {M}, total valid: {len(C)}")
-			if W>len(A)//2:V=_A
-			A=C if C else[]
-		else:A=[]
-		i=f"object_tree_{st.session_state.get(_V,0)}";B=st.session_state.get(_G,0);logger.debug(f"[EXEC:{B}][TREE_INPUT] tree_key={i}, index={len(A)if A else 0} items, tree_items={len(L)}")
-		if D:st.info('⚠️ Object selection is locked on the Generate step. Go back to modify selections.')
-		v=sac.tree(items=L,index=A,open_index=e,label='Select objects:'if not D else'Selected objects (locked):',icon='diagram-3',color=_T if not D else'#8A8A8A',open_all=_B,checkbox=_A,checkbox_strict=_B,show_line=_A,return_index=_B,key=i);O,j=_parse_tree_result(v);_sync_expansion_state(j,e);logger.debug(f"[EXEC:{B}][TREE_OUTPUT] selected={len(O)} items, first 5: {O[:5]}");logger.debug(f"[EXEC:{B}][TREE_EXPANDED] expanded_from_tree={len(j)}, expanded_nodes={len(st.session_state.expanded_nodes)}, first 3: {st.session_state.expanded_nodes[:3]if st.session_state.expanded_nodes else[]}");logger.debug(f"[EXEC:{B}][TREE_STATE] pre_selected was: {len(A)if A else 0} items");k=_process_lazy_loading(T,F)
-		def w(labels,lmap):
-			F=lmap;A=set()
-			for C in labels:
-				D=F.get(C)
-				if not D:A.add(C);continue
-				G=D[0]
-				if G==_F:A.add(C)
-				elif G==_D:
-					H=D[1];E=_B
-					for(I,B)in F.items():
-						if B[0]==_F and B[1]==H:A.add(I);E=_A
-					if not E:A.add(C)
-				elif G==_E:
-					H,J=D[1],D[2];E=_B
-					for(I,B)in F.items():
-						if B[0]==_F and B[1]==H and B[2]==J:A.add(I);E=_A
-					if not E:A.add(C)
-			return A
-		X=set(A)if A else set();l=set(O);Y=w(l,F);logger.debug(f"[EXEC:{B}][TREE_EXPAND] raw={len(l)}, expanded={len(Y)}");I=Y-X;P=X-Y;logger.debug(f"[TREE_NAV] New selections (added): {len(I)}: {list(I)[:5]}");logger.debug(f"[TREE_NAV] Removed selections: {len(P)}: {list(P)[:5]}");Z=_B;x=len(P)>0;m={A[0]for A in st.session_state.selected_objects}
-		if len(X)>0 and I and not x:
-			Q=_A
-			for H in I:
-				J=F.get(H)
-				if J and J[0]==_D:
-					a=J[1]
-					if a not in m:Q=_B;logger.debug(f"[TREE_NAV] Genuine new database selection: {H}");break
-					else:logger.debug(f"[TREE_NAV] Spurious db selection (already has objects): {H}")
-				elif J and J[0]==_E:
-					a=J[1]
-					if a not in m:Q=_B;break
-				else:Q=_B;break
-			Z=Q and any(F.get(A,(_C,))[0]in(_D,_E)for A in I)
-		n=bool(st.session_state.get(_S,'').strip());o={A for A in I if A in F};b=bool(o);logger.debug(f"[EXEC:{B}][GUARDS] is_read_only={D}, spurious={Z}, expected_missing={V}, needs_lazy_rerun={k}, removals={len(P)}, filter_active={n}, has_new={b}, valid_new={list(o)[:3]}, filter_just_changed={K}");p=_B;q=_B
-		if D:logger.debug('[TREE_NAV] SKIPPING: read-only mode')
-		elif K and not b:logger.debug('[TREE_NAV] SKIPPING: filter_just_changed (tree re-rendering)')
-		elif Z:logger.debug('[TREE_NAV] SKIPPING: spurious_db_schema')
-		elif V and not(n and b):logger.debug('[TREE_NAV] SKIPPING: expected_selections_missing (no filter or new selections)')
-		else:logger.debug('[TREE_NAV] PROCESSING selections via _process_tree_selections');p=_process_tree_selections(T,O,F)
-		q=_sync_metadata_with_selections(T);R=len(st.session_state.selected_objects);S=len(st.session_state.views_metadata)
-		if R!=S:st.warning(f"⚠️ State mismatch: {R} selected, {S} loaded");logger.warning(f"[EXEC:{B}][STATE_DESYNC] selected_objects={R}, views_metadata={S}")
-		else:logger.debug(f"[EXEC:{B}][STATE_OK] selected_objects={R}, views_metadata={S}")
-		if q:logger.debug(f"[EXEC:{B}][RERUN] Full rerun - metadata changed");st.rerun()
-		elif k or p:logger.debug(f"[EXEC:{B}][RERUN] Rerun for lazy loading or selection state");st.rerun()
-	A()
+        '''
+        # Add connector line between steps
+        if i < len(steps) - 1:
+            line_color = "#52c41a" if is_completed else "#d9d9d9"
+            step_html += f'<div style="flex: 0.5; height: 2px; background: {line_color};"></div>'
+
+    step_html += '</div>'
+    st.markdown(step_html, unsafe_allow_html=True)
+
+
+# Load SVG icons as base64 for inline display
+def load_svg_icon(icon_name: str) -> str:
+    """Load SVG icon and return as base64 data URI."""
+    img_dir = Path(__file__).parent / "img"
+    svg_path = img_dir / f"{icon_name}.svg"
+    if svg_path.exists():
+        svg_content = svg_path.read_text(encoding="utf-8")
+        b64 = base64.b64encode(svg_content.encode()).decode()
+        return f"data:image/svg+xml;base64,{b64}"
+    return ""
+
+
+# Preload icons at module level
+ICON_DATA = {
+    "table": load_svg_icon("table"),
+    "view": load_svg_icon("view"),
+    "cube": load_svg_icon("cube"),
+    "database": load_svg_icon("database"),
+    "schema": load_svg_icon("schema"),
+}
+
+# Map object types to icon keys
+OBJECT_TYPE_ICONS = {
+    "SEMANTIC_VIEW": "cube",
+    "VIEW": "view",
+    "TABLE": "table"
+}
+
+
+def get_icon_html(icon_key: str, size: int = 16) -> str:
+    """Get HTML img tag for a preloaded SVG icon.
+
+    Icons are preloaded at module level in ICON_DATA for performance.
+
+    Args:
+        icon_key: Key from ICON_DATA (e.g., 'table', 'view', 'cube')
+        size: Icon size in pixels (default 16)
+
+    Returns:
+        HTML img tag string, or empty string if icon not found.
+    """
+    data_uri = ICON_DATA.get(icon_key, "")
+    if data_uri:
+        return f'<img src="{data_uri}" width="{size}" height="{size}" style="vertical-align: middle; margin-right: 4px;">'
+    return ""
+
+
+def init_session_state():
+    """Initialize Streamlit session state variables for the wizard.
+
+    This function now uses the centralized AppState from session_manager.py
+    as the source of truth, with bidirectional sync to legacy session_state
+    keys for backwards compatibility.
+
+    The AppState provides:
+        - Type-safe access to all state variables
+        - Centralized state management
+        - Gradual migration path from legacy session_state
+
+    State Categories (managed via AppState):
+        Selection State (AppState.selection):
+            - selected_objects: List of (db, schema, name, obj_type) tuples
+            - views_metadata: List of SemanticViewMetadata objects loaded
+
+        Tree Navigation State (AppState.tree):
+            - loaded_schemas: Cache of schemas per database
+            - loaded_objects: Cache of objects per (db, schema) pair
+            - expanded_nodes: List of expanded tree node IDs
+            - reset_counter: Counter to force tree component reset
+
+        Data Model State (AppState.model):
+            - selected_relationships: Dict of relationship toggles
+            - manual_relationships: User-created relationships
+            - bridge_relationships: Bridge table relationships
+            - active_relationship_choices: Conflict resolution choices
+
+        Configuration State (AppState.config):
+            - pbi_mode: Power BI mode ('DirectQuery' or 'Import')
+            - dark_mode: Theme toggle (False=Light, True=Dark)
+
+        UI State (AppState.ui):
+            - show_add_rel_form: Add relationship form visibility
+            - editing_rel_id: Currently editing relationship
+            - search_filter: Current search text
+    """
+    # Use the new centralized state initialization
+    # This handles migration and sync in one call
+    init_app_state()
+
+    # Ensure legacy keys exist for backwards compatibility
+    # (init_app_state syncs AppState to these, but some may not be in the map)
+    if "wizard_step" not in st.session_state:
+        st.session_state.wizard_step = 0
+
+
+def toggle_object_selection(database: str, schema: str, name: str, object_type: ObjectType):
+    """Toggle an object in the selection list."""
+    obj_tuple = (database, schema, name, object_type)
+    if obj_tuple in st.session_state.selected_objects:
+        st.session_state.selected_objects.remove(obj_tuple)
+    else:
+        st.session_state.selected_objects.append(obj_tuple)
+
+
+def is_object_selected(database: str, schema: str, name: str, object_type: ObjectType) -> bool:
+    """Check if an object is currently selected."""
+    return (database, schema, name, object_type) in st.session_state.selected_objects
+
+
+def matches_search(search_term: str, database: str, schema: str = "", obj_name: str = "") -> bool:
+    """Check if any part of the fully qualified name matches the search term."""
+    if not search_term:
+        return True
+    full_name = f"{database}.{schema}.{obj_name}".upper()
+    return search_term in full_name
+
+
+def build_tree_items(databases: list[str], search_term: str = "") -> tuple[list, dict]:
+    """
+    Build tree items for sac.tree component.
+    Returns (items, label_map) where label_map maps labels to metadata.
+    """
+    items = []
+    label_map = {}  # Maps label -> (type, db, schema, name, obj_type)
+
+    for db in databases:
+        # Skip databases that don't match search
+        if search_term:
+            db_matches = search_term in db.upper()
+            has_matching_children = False
+            if db in st.session_state.loaded_schemas:
+                for schema in st.session_state.loaded_schemas[db]:
+                    if matches_search(search_term, db, schema):
+                        has_matching_children = True
+                        break
+                    schema_key = (db, schema)
+                    if schema_key in st.session_state.loaded_objects:
+                        for obj in st.session_state.loaded_objects[schema_key]:
+                            if matches_search(search_term, db, schema, obj.name):
+                                has_matching_children = True
+                                break
+            if not db_matches and not has_matching_children:
+                continue
+
+        db_label = db
+        label_map[db_label] = ("database", db, None, None, None)
+        db_children = []
+
+        # Add schemas if loaded
+        if db in st.session_state.loaded_schemas:
+            for schema in st.session_state.loaded_schemas[db]:
+                if search_term:
+                    schema_matches = matches_search(search_term, db, schema)
+                    schema_key = (db, schema)
+                    has_matching_objects = False
+                    if schema_key in st.session_state.loaded_objects:
+                        for obj in st.session_state.loaded_objects[schema_key]:
+                            if matches_search(search_term, db, schema, obj.name):
+                                has_matching_objects = True
+                                break
+                    if not schema_matches and not has_matching_objects:
+                        continue
+
+                # Always use qualified schema label to prevent collisions
+                # Schema names can collide with database names (e.g., "RAW" db vs "RAW" schema)
+                schema_label = f"{db}.{schema}"
+                label_map[schema_label] = ("schema", db, schema, None, None)
+                schema_children = []
+
+                schema_key = (db, schema)
+                if schema_key in st.session_state.loaded_objects:
+                    # Objects loaded - show them
+                    for obj in st.session_state.loaded_objects[schema_key]:
+                        if search_term and not matches_search(search_term, db, schema, obj.name):
+                            continue
+
+                        # Always use qualified object label to prevent collisions
+                        # Object names can collide across schemas/databases (e.g., "CUSTOMERS")
+                        obj_label = f"{db}.{schema}.{obj.name}"
+                        label_map[obj_label] = ("object", db, schema, obj.name, obj.object_type)
+
+                        # Icon and tag based on object type (Snowflake Design System colors)
+                        if obj.object_type == "SEMANTIC_VIEW":
+                            obj_icon = sac.BsIcon(name="box", color="#7254A3")  # Purple Moon
+                            obj_tag = sac.Tag("Semantic", color="purple")
+                        elif obj.object_type == "VIEW":
+                            obj_icon = sac.BsIcon(name="eye", color="#FF9F36")  # Valencia Orange
+                            obj_tag = sac.Tag("View", color="orange")
+                        else:
+                            obj_icon = sac.BsIcon(name="table", color="#75CDD7")  # Star Blue
+                            obj_tag = sac.Tag("Table", color="cyan")
+
+                        schema_children.append(
+                            sac.TreeItem(obj_label, icon=obj_icon, tag=obj_tag)
+                        )
+                else:
+                    # Objects not loaded - placeholder (will load on expand)
+                    schema_children.append(
+                        sac.TreeItem("⏳ Loading objects...", disabled=True)
+                    )
+
+                db_children.append(
+                    sac.TreeItem(schema_label, icon="folder2-open", children=schema_children)
+                )
+        else:
+            # Schemas not loaded - placeholder (will load on expand)
+            db_children.append(
+                sac.TreeItem("⏳ Loading schemas...", disabled=True)
+            )
+
+        items.append(
+            sac.TreeItem(db_label, icon="database", children=db_children)
+        )
+
+    return items, label_map
+
+
+# =============================================================================
+# Tree Navigation Helper Functions
+# =============================================================================
+
+def _clean_tree_session_state() -> None:
+    """Clean up corrupted session state that could cause tree errors.
+
+    Filters out invalid entries from selected_objects, expanded_nodes,
+    and removes tree keys with None values.
+    """
+    # Filter out invalid entries from selected_objects
+    if "selected_objects" in st.session_state:
+        valid_objects = []
+        for item in st.session_state.selected_objects:
+            if item is not None and isinstance(item, (list, tuple)) and len(item) >= 4:
+                if all(v is not None for v in item[:4]):
+                    valid_objects.append(item)
+        st.session_state.selected_objects = valid_objects
+
+    # Clean up expanded_nodes
+    if "expanded_nodes" in st.session_state:
+        st.session_state.expanded_nodes = [
+            n for n in st.session_state.expanded_nodes
+            if n is not None and isinstance(n, str)
+        ]
+
+    # Clean up ALL tree keys that have None values
+    tree_keys_to_delete = []
+    for key in list(st.session_state.keys()):
+        if key.startswith("object_tree_"):
+            val = st.session_state[key]
+            if val is None:
+                tree_keys_to_delete.append(key)
+            elif isinstance(val, list) and any(v is None for v in val):
+                tree_keys_to_delete.append(key)
+    for key in tree_keys_to_delete:
+        del st.session_state[key]
+
+
+def _get_pending_metadata_count() -> int:
+    """Calculate how many selected objects still need metadata loaded.
+
+    Returns:
+        Count of objects that haven't had metadata loaded yet
+    """
+    if not st.session_state.selected_objects:
+        return 0
+
+    loaded_keys = {(m.database, m.schema, m.view) for m in st.session_state.views_metadata}
+    pending_count = sum(
+        1 for db, schema, name, _ in st.session_state.selected_objects
+        if (db, schema, name) not in loaded_keys
+    )
+    return pending_count
+
+
+def _get_spinner_gif_base64() -> str:
+    """Get the Snowflake spinner GIF as a base64 string.
+
+    Returns:
+        Base64 encoded GIF data, or empty string if file not found
+    """
+    import base64
+    from pathlib import Path
+
+    gif_path = Path(__file__).parent / "img" / "loading_spinner.gif"
+    if gif_path.exists():
+        return base64.b64encode(gif_path.read_bytes()).decode('utf-8')
+    return ""
+
+
+def _render_status_card_html(
+    selected_count: int,
+    is_read_only: bool = False,
+    pending_load_count: int = 0
+) -> str:
+    """Generate HTML for the selection status card.
+
+    Args:
+        selected_count: Number of selected objects
+        is_read_only: If True, show locked state
+        pending_load_count: Number of objects pending load
+
+    Returns:
+        HTML string for the status card
+    """
+    if selected_count == 0:
+        return ""
+
+    # Determine if loading
+    is_loading = pending_load_count > 0 and not is_read_only
+
+    # Build status content
+    if is_read_only:
+        icon_html = '<span style="font-size:18px;">🔒</span>'
+        status_text = f"<strong>{selected_count}</strong> object(s) locked"
+    elif is_loading:
+        # Use Snowflake spinner GIF during loading
+        gif_b64 = _get_spinner_gif_base64()
+        if gif_b64:
+            icon_html = f'<img src="data:image/gif;base64,{gif_b64}" width="20" height="20" style="vertical-align: middle;" />'
+        else:
+            icon_html = '<span style="font-size:18px;">⏳</span>'
+        status_text = f"<strong>{selected_count}</strong> selected, <strong style=\"color:#29B5E8\">{pending_load_count}</strong> loading..."
+    else:
+        icon_html = '<span style="font-size:18px;">✓</span>'
+        status_text = f"<strong>{selected_count}</strong> object(s) selected"
+
+    # Add CSS for loading state
+    loading_css = ""
+    if is_loading:
+        loading_css = """
+        <style>
+            .selection-status-card.loading {
+                border-left-color: #29B5E8 !important;
+                background: linear-gradient(135deg, #E8F6FA 0%, #F0FAFC 100%) !important;
+            }
+        </style>
+        """
+
+    card_class = "selection-status-card loading" if is_loading else "selection-status-card"
+
+    return f"""
+        {loading_css}
+        <div class="{card_class}">
+            <span style="margin-right:10px;">{icon_html}</span>
+            {status_text}
+        </div>
+    """
+
+
+def render_selection_status_header(is_read_only: bool = False, pending_load_count: int = 0):
+    """Render sticky selection status card above the tree.
+
+    Shows count of selected objects and loading status with Snowflake branding.
+
+    Args:
+        is_read_only: If True, show locked state for Step 3
+        pending_load_count: Number of objects pending metadata load
+
+    Returns:
+        Placeholder that can be updated with loading state
+    """
+    selected_count = len(st.session_state.selected_objects)
+
+    # Create a placeholder that can be updated later
+    placeholder = st.empty()
+
+    html = _render_status_card_html(selected_count, is_read_only, pending_load_count)
+    if html:
+        placeholder.markdown(html, unsafe_allow_html=True)
+
+    return placeholder
+
+
+def update_status_header_loading(placeholder, pending_count: int) -> None:
+    """Update the status header to show loading state.
+
+    Args:
+        placeholder: The st.empty() placeholder from render_selection_status_header
+        pending_count: Number of objects being loaded
+    """
+    selected_count = len(st.session_state.selected_objects)
+    html = _render_status_card_html(selected_count, is_read_only=False, pending_load_count=pending_count)
+    if html:
+        placeholder.markdown(html, unsafe_allow_html=True)
+
+
+def _get_pre_selected_labels() -> list[str] | None:
+    """Get list of pre-selected object labels from session state.
+
+    Returns fully-qualified object labels (db.schema.name) to match
+    the label_map keys used in build_tree_items().
+
+    Returns:
+        List of qualified object labels to pre-select, or None if empty.
+    """
+    pre_selected = []
+    exec_id = st.session_state.get("_exec_id", 0)
+
+    logger.debug(f"[EXEC:{exec_id}][PRE_SELECT] selected_objects count: {len(st.session_state.selected_objects)}")
+
+    for item in st.session_state.selected_objects:
+        if item is None or not isinstance(item, (list, tuple)) or len(item) < 4:
+            continue
+        db, schema, name, obj_type = item
+        if name is not None and isinstance(name, str):
+            # Use fully-qualified label to match label_map keys
+            qualified_label = f"{db}.{schema}.{name}"
+            pre_selected.append(qualified_label)
+
+    logger.debug(f"[EXEC:{exec_id}][PRE_SELECT] Qualified labels to pass to tree: {len(pre_selected)}, first 5: {pre_selected[:5]}")
+
+    # Return None instead of empty list to avoid component issues
+    return pre_selected if pre_selected else None
+
+
+def _get_open_index() -> list[str] | None:
+    """Get list of expanded node labels for the tree component.
+
+    Returns:
+        List of expanded node labels, or None if empty.
+    """
+    # First, ensure parent nodes of selected objects are expanded
+    # This is critical for read-only mode (Step 3) to show checkmarks
+    _ensure_selected_parents_expanded()
+
+    if not st.session_state.expanded_nodes:
+        return None
+
+    open_index = [
+        n for n in st.session_state.expanded_nodes
+        if n is not None and isinstance(n, str)
+    ]
+    return open_index if open_index else None
+
+
+def _ensure_selected_parents_expanded() -> None:
+    """Ensure parent databases and schemas of selected objects are in expanded_nodes.
+
+    This is critical for the tree to show checkmarks on selected objects.
+    If parents aren't expanded, the object labels won't be in the tree,
+    and pre_selected filtering will remove them.
+    """
+    if not st.session_state.selected_objects:
+        return
+
+    # Collect all unique databases and schemas from selected objects
+    databases_to_expand = set()
+    schemas_to_expand = set()
+
+    for item in st.session_state.selected_objects:
+        if item is None or not isinstance(item, (list, tuple)) or len(item) < 4:
+            continue
+        db, schema, name, obj_type = item
+        if db:
+            databases_to_expand.add(db)
+        if db and schema:
+            # Use qualified schema label to match TreeItem labels
+            schemas_to_expand.add(f"{db}.{schema}")
+
+    # Add to expanded_nodes if not already there
+    for db in databases_to_expand:
+        if db not in st.session_state.expanded_nodes:
+            st.session_state.expanded_nodes.append(db)
+
+    for schema_label in schemas_to_expand:
+        if schema_label not in st.session_state.expanded_nodes:
+            st.session_state.expanded_nodes.append(schema_label)
+
+
+def _parse_tree_result(result) -> tuple[list[str], list[str]]:
+    """Parse the result from sac.tree component.
+
+    Handles both the new TreeResult namedtuple format (from forked component)
+    and the old list format.
+
+    Args:
+        result: The result from sac.tree()
+
+    Returns:
+        Tuple of (selected_labels, expanded_labels)
+    """
+    if hasattr(result, 'selected') and hasattr(result, 'expanded'):
+        # New forked component - TreeResult namedtuple
+        selected = result.selected if isinstance(result.selected, list) else [result.selected] if result.selected else []
+        expanded = result.expanded or []
+    else:
+        # Fallback for old component format
+        selected = result if isinstance(result, list) else [result] if result else []
+        expanded = []
+
+    # Filter out None values and placeholder labels
+    selected = [s for s in selected if s is not None and not str(s).startswith("⏳")]
+
+    return selected, expanded
+
+
+def _sync_expansion_state(expanded: list[str], open_index: list[str] | None) -> None:
+    """Synchronize expansion state between tree result and session state.
+
+    CRITICAL FIX: The forked sac.tree component only sends expanded keys back to Python
+    when the user manually clicks expand/collapse. When we pass open_index to tell the
+    tree which nodes to expand, it expands them visually but doesn't notify Python.
+
+    Therefore, we must ALWAYS merge open_index (what we told tree to expand) with any
+    tree result to ensure lazy loading processes all expanded nodes.
+
+    Args:
+        expanded: Expanded nodes from tree result (may be empty even if nodes are visually expanded)
+        open_index: Open index passed to tree component (these nodes ARE visually expanded)
+    """
+    exec_id = st.session_state.get("_exec_id", 0)
+    current_expanded = set(e for e in expanded if e is not None) if expanded else set()
+    saved_expanded = set(st.session_state.expanded_nodes) if st.session_state.expanded_nodes else set()
+    passed_to_tree = set(open_index) if open_index else set()
+
+    # CRITICAL: Always include what we passed as open_index since those nodes ARE visually
+    # expanded in the tree, even if the component didn't report them back
+    merged_expanded = current_expanded | passed_to_tree | saved_expanded
+
+    logger.debug(f"[EXEC:{exec_id}][SYNC_EXPAND] tree_returned={len(current_expanded)}, passed={len(passed_to_tree)}, saved={len(saved_expanded)}, merged={len(merged_expanded)}")
+
+    if current_expanded and current_expanded != passed_to_tree:
+        # User explicitly expanded/collapsed - use tree result merged with passed
+        st.session_state.expanded_nodes = list(current_expanded | passed_to_tree)
+    elif merged_expanded:
+        # No tree result but we have passed or saved state - preserve all
+        st.session_state.expanded_nodes = list(merged_expanded)
+    else:
+        # No state at all
+        st.session_state.expanded_nodes = []
+
+
+def _process_lazy_loading(session, label_map: dict) -> bool:
+    """Process expanded nodes and load data lazily.
+
+    Loads schemas when a database is expanded, and loads objects when
+    a schema is expanded.
+
+    CRITICAL FIX: When a database is expanded and its schemas are loaded,
+    we also add those schemas to expanded_nodes. This ensures that if
+    the schema is visually expanded in the tree, its objects will be
+    loaded in the next cycle.
+
+    Args:
+        session: Snowflake session
+        label_map: Mapping of labels to metadata
+
+    Returns:
+        True if any data was loaded (requires rerun), False otherwise
+    """
+    exec_id = st.session_state.get("_exec_id", 0)
+    needs_rerun = False
+    expanded_to_process = list(st.session_state.expanded_nodes or [])  # Copy to allow modification
+
+    logger.debug(f"[EXEC:{exec_id}][LAZY_LOAD] Processing {len(expanded_to_process)} expanded nodes: {expanded_to_process[:5]}")
+
+    for label in expanded_to_process:
+        if label not in label_map:
+            continue
+        meta = label_map[label]
+
+        if meta[0] == "database":
+            # Database expanded - load schemas
+            db = meta[1]
+            if db not in st.session_state.loaded_schemas:
+                with snowflake_spinner(f"Loading schemas for {db}..."):
+                    try:
+                        schemas = get_schemas(session, db)
+                        st.session_state.loaded_schemas[db] = schemas
+                        needs_rerun = True
+                        logger.debug(f"[EXEC:{exec_id}][LAZY_LOAD] Loaded {len(schemas)} schemas for {db}")
+
+                        # CRITICAL: Auto-add loaded schemas to expanded_nodes
+                        # This ensures objects will be loaded if schemas are visually expanded
+                        for schema_name in schemas:
+                            # Use qualified schema label to match TreeItem labels
+                            qualified_schema = f"{db}.{schema_name}"
+                            if qualified_schema not in st.session_state.expanded_nodes:
+                                st.session_state.expanded_nodes.append(qualified_schema)
+                                logger.debug(f"[EXEC:{exec_id}][LAZY_LOAD] Auto-expanded schema: {qualified_schema}")
+                    except Exception as e:
+                        st.error(f"Error loading schemas: {e}")
+            else:
+                # Schemas already loaded - ensure they're in expanded_nodes
+                for schema_name in st.session_state.loaded_schemas.get(db, []):
+                    qualified_schema = f"{db}.{schema_name}"
+                    if qualified_schema not in st.session_state.expanded_nodes:
+                        st.session_state.expanded_nodes.append(qualified_schema)
+
+        elif meta[0] == "schema":
+            # Schema expanded - load objects
+            db, schema = meta[1], meta[2]
+            schema_key = (db, schema)
+            if schema_key not in st.session_state.loaded_objects:
+                with snowflake_spinner(f"Loading objects for {schema}..."):
+                    try:
+                        objects = get_all_objects(session, db, schema)
+                        st.session_state.loaded_objects[schema_key] = objects
+                        needs_rerun = True
+                        logger.debug(f"[EXEC:{exec_id}][LAZY_LOAD] Loaded {len(objects)} objects for {db}.{schema}")
+                    except Exception as e:
+                        st.error(f"Error loading objects: {e}")
+
+    return needs_rerun
+
+
+def _process_tree_selections(
+    session,
+    selected: list[str],
+    label_map: dict
+) -> bool:
+    """Process tree selections and update session state.
+
+    Handles object selections and schema-level cascade selections.
+    Preserves selections for objects not visible in current tree (due to filter).
+
+    Args:
+        session: Snowflake session
+        selected: List of selected labels from tree
+        label_map: Mapping of labels to metadata
+
+    Returns:
+        True if schemas were loaded (requires rerun), False otherwise
+    """
+    needs_rerun = False
+
+    logger.debug(f"[PROCESS_SEL] Input: {len(selected)} selected items from tree")
+    logger.debug(f"[PROCESS_SEL] Current selected_objects: {len(st.session_state.selected_objects)}")
+
+    # Build set of object labels currently visible in the tree
+    visible_object_labels = set()
+    for label, meta in label_map.items():
+        if meta[0] == "object":
+            visible_object_labels.add(meta[3])  # meta[3] is the object name
+
+    logger.debug(f"[PROCESS_SEL] Visible objects in tree: {len(visible_object_labels)}")
+
+    # Build set of selected databases from:
+    # 1. Databases directly selected in the tree (database-level selection)
+    # 2. Databases inferred from object-level selections
+    # This ensures preservation works when user selects a new database via filter
+    selected_databases = set()
+    for label in selected:
+        if label in label_map:
+            meta = label_map[label]
+            if meta[0] == "database":
+                # Database directly selected - include it
+                selected_databases.add(meta[1])
+            elif meta[0] == "object":
+                # Object selected - infer database from it
+                selected_databases.add(meta[1])  # meta[1] is database name
+
+    logger.debug(f"[PROCESS_SEL] Selected databases: {selected_databases}")
+
+    # Preserve selections for objects NOT visible in current tree (due to filter)
+    # Skip preservation if we just reset - start completely fresh
+    #
+    # IMPORTANT: When filter is active, preserve ALL hidden selections.
+    # This enables multi-database selection: user selects ACME, filters on "tpch",
+    # selects TPCH - both databases should be kept (51 total objects).
+    # When filter is NOT active, only preserve if database is still selected.
+    filter_active = bool(st.session_state.get("search_filter", "").strip())
+
+    if st.session_state.get("_just_reset", False):
+        preserved_selections = []
+        st.session_state._just_reset = False
+        logger.debug("[PROCESS_SEL] Just reset - not preserving any selections")
+    else:
+        preserved_selections = []
+        for db, schema, name, obj_type in st.session_state.selected_objects:
+            is_hidden = name not in visible_object_labels
+            if filter_active:
+                # Filter active: preserve ALL hidden selections (multi-database support)
+                if is_hidden:
+                    preserved_selections.append((db, schema, name, obj_type))
+            else:
+                # No filter: only preserve if database is still selected
+                if is_hidden and db in selected_databases:
+                    preserved_selections.append((db, schema, name, obj_type))
+        logger.debug(f"[PROCESS_SEL] Preserved (hidden, filter_active={filter_active}): {len(preserved_selections)}")
+
+    # Process new selections from the current tree
+    new_object_selections = []
+
+    for label in selected:
+        if label not in label_map:
+            continue
+        meta = label_map[label]
+
+        # Database selected - auto-load all schemas and objects
+        if meta[0] == "database":
+            db = meta[1]
+            loaded_new_data = False
+
+            # Auto-load schemas if not loaded
+            if db not in st.session_state.loaded_schemas:
+                with snowflake_spinner(f"Loading schemas for {db}..."):
+                    try:
+                        schemas = get_schemas(session, db)
+                        st.session_state.loaded_schemas[db] = schemas
+                        loaded_new_data = True
+                    except Exception as e:
+                        st.error(f"Error loading schemas for {db}: {e}")
+                        continue
+
+            # Add database to expanded nodes
+            if db not in st.session_state.expanded_nodes:
+                st.session_state.expanded_nodes.append(db)
+
+            # Auto-load objects for each schema and select them
+            schemas_to_load = st.session_state.loaded_schemas.get(db, [])
+            for schema_name in schemas_to_load:
+                schema_key = (db, schema_name)
+
+                if schema_key not in st.session_state.loaded_objects:
+                    with snowflake_spinner(f"Loading objects for {schema_name}..."):
+                        try:
+                            objects = get_all_objects(session, db, schema_name)
+                            st.session_state.loaded_objects[schema_key] = objects
+                            loaded_new_data = True
+                        except Exception as e:
+                            st.error(f"Error loading objects for {schema_name}: {e}")
+                            continue
+
+                # Add schema to expanded nodes (use qualified label)
+                qualified_schema = f"{db}.{schema_name}"
+                if qualified_schema not in st.session_state.expanded_nodes:
+                    st.session_state.expanded_nodes.append(qualified_schema)
+
+                # Select all objects in this schema
+                for obj in st.session_state.loaded_objects.get(schema_key, []):
+                    new_object_selections.append((db, schema_name, obj.name, obj.object_type))
+
+            # Only trigger rerun if we actually loaded new data
+            if loaded_new_data:
+                needs_rerun = True
+            continue
+
+        if meta[0] == "object":
+            _, db, schema, name, obj_type = meta
+            new_object_selections.append((db, schema, name, obj_type))
+
+        elif meta[0] == "schema":
+            # Schema selected - auto-load and select all objects
+            db = meta[1]
+            schema_name = meta[2]
+            schema_key = (db, schema_name)
+
+            # Auto-load if not loaded
+            if schema_key not in st.session_state.loaded_objects:
+                with snowflake_spinner(f"Loading objects for {schema_name}..."):
+                    try:
+                        objects = get_all_objects(session, db, schema_name)
+                        st.session_state.loaded_objects[schema_key] = objects
+                        needs_rerun = True  # Only rerun if we loaded new data
+                    except Exception as e:
+                        st.error(f"Error loading objects for {schema_name}: {e}")
+                        continue
+
+                # Add schema to expanded nodes (use qualified label)
+                qualified_schema = f"{db}.{schema_name}"
+                if qualified_schema not in st.session_state.expanded_nodes:
+                    st.session_state.expanded_nodes.append(qualified_schema)
+
+            # Select all objects
+            for obj in st.session_state.loaded_objects.get(schema_key, []):
+                new_object_selections.append((db, schema_name, obj.name, obj.object_type))
+
+    # Combine preserved + new selections (deduplicated)
+    all_selections = preserved_selections + new_object_selections
+    seen = set()
+    unique_selections = []
+    for item in all_selections:
+        if item not in seen:
+            seen.add(item)
+            unique_selections.append(item)
+
+    exec_id = st.session_state.get("_exec_id", 0)
+    logger.debug(f"[EXEC:{exec_id}][PROCESS_SEL] new_object_selections={len(new_object_selections)}, unique_selections={len(unique_selections)}")
+
+    # Check if selections actually changed (to trigger rerun for deselections)
+    old_selections = set(st.session_state.selected_objects)
+    new_selections = set(unique_selections)
+    selections_changed = old_selections != new_selections
+
+    added = new_selections - old_selections
+    removed = old_selections - new_selections
+    logger.debug(f"[EXEC:{exec_id}][PROCESS_SEL] Changes: added={len(added)}, removed={len(removed)}, changed={selections_changed}")
+    if removed:
+        logger.debug(f"[EXEC:{exec_id}][PROCESS_SEL] Removed items: {list(removed)[:5]}")
+
+    st.session_state.selected_objects = unique_selections
+    logger.debug(f"[EXEC:{exec_id}][STATE_UPDATE] selected_objects now has {len(st.session_state.selected_objects)} items")
+
+    # Trigger rerun if selections changed (including deselections)
+    # NOTE: Do NOT increment tree_reset_counter here - that causes the tree to re-mount
+    # and ignore the index prop, creating a deselection loop. Only reset on explicit user action.
+    if selections_changed:
+        logger.debug(f"[EXEC:{exec_id}][PROCESS_SEL] Selections changed - setting needs_rerun=True")
+        needs_rerun = True
+
+    return needs_rerun
+
+
+def _sync_metadata_with_selections(session) -> bool:
+    """Synchronize views_metadata with selected_objects.
+
+    Removes metadata for deselected objects and loads metadata for newly
+    selected objects.
+
+    Args:
+        session: Snowflake session for loading metadata
+
+    Returns:
+        True if metadata changed (added or removed), False otherwise.
+        Caller should trigger full rerun if True (main content needs update).
+    """
+    exec_id = st.session_state.get("_exec_id", 0)
+
+    # Track original count to detect removals
+    original_count = len(st.session_state.views_metadata)
+
+    # Build key sets for comparison
+    selected_keys = {(db, schema, name) for db, schema, name, _ in st.session_state.selected_objects}
+    loaded_keys = {(m.database, m.schema, m.view) for m in st.session_state.views_metadata}
+
+    logger.debug(f"[EXEC:{exec_id}][METADATA_SYNC] selected_keys={len(selected_keys)}, loaded_keys={len(loaded_keys)}")
+    if selected_keys:
+        logger.debug(f"[EXEC:{exec_id}][METADATA_SYNC] First 3 selected: {list(selected_keys)[:3]}")
+    if loaded_keys:
+        logger.debug(f"[EXEC:{exec_id}][METADATA_SYNC] First 3 loaded: {list(loaded_keys)[:3]}")
+
+    # Remove metadata for deselected objects
+    st.session_state.views_metadata = [
+        m for m in st.session_state.views_metadata
+        if (m.database, m.schema, m.view) in selected_keys
+    ]
+    metadata_removed = len(st.session_state.views_metadata) < original_count
+
+    # Clean up orphaned relationships after deselecting objects
+    current_objects = {m.view for m in st.session_state.views_metadata}
+
+    # Remove manual relationships involving deselected objects
+    if "manual_relationships" in st.session_state:
+        st.session_state.manual_relationships = [
+            rel for rel in st.session_state.manual_relationships
+            if rel.from_table in current_objects and rel.to_table in current_objects
+        ]
+
+    # Remove bridge relationships involving deselected objects
+    if "bridge_relationships" in st.session_state:
+        st.session_state.bridge_relationships = [
+            rel for rel in st.session_state.bridge_relationships
+            if rel.from_table in current_objects and rel.to_table in current_objects
+        ]
+
+    # Clear selected_relationships state to force regeneration
+    # (relationships will be re-detected on next render)
+    if "selected_relationships" in st.session_state and current_objects:
+        # Filter to only keep relationship IDs for current objects
+        rel_ids_to_keep = {
+            rid for rid, selected in st.session_state.selected_relationships.items()
+            if any(obj in rid for obj in current_objects)
+        }
+        st.session_state.selected_relationships = {
+            rid: selected for rid, selected in st.session_state.selected_relationships.items()
+            if rid in rel_ids_to_keep
+        }
+
+    # Clean up active_relationship_choices for conflict pairs
+    if "active_relationship_choices" in st.session_state and current_objects:
+        st.session_state.active_relationship_choices = {
+            key: val for key, val in st.session_state.active_relationship_choices.items()
+            if any(obj in key for obj in current_objects)
+        }
+
+    # Load metadata for newly selected objects
+    objects_to_load = [
+        (db, schema, name, obj_type)
+        for db, schema, name, obj_type in st.session_state.selected_objects
+        if (db, schema, name) not in loaded_keys
+    ]
+
+    metadata_added = False
+    if objects_to_load:
+        logger.debug(f"[EXEC:{exec_id}][METADATA_SYNC] Loading {len(objects_to_load)} objects: {objects_to_load[:3]}")
+
+        # Update status header to show loading state
+        placeholder = st.session_state.get("_status_header_placeholder")
+        if placeholder:
+            update_status_header_loading(placeholder, len(objects_to_load))
+
+        try:
+            with snowflake_spinner(f"Loading metadata for {len(objects_to_load)} object(s)..."):
+                new_metadata = get_metadata_batch_parallel(session, objects_to_load, max_workers=8)
+                st.session_state.views_metadata.extend(new_metadata)
+            metadata_added = True
+            logger.debug(f"[EXEC:{exec_id}][METADATA_SYNC] Loaded {len(objects_to_load)} objects, total metadata: {len(st.session_state.views_metadata)}")
+        except Exception as e:
+            logger.error(f"[EXEC:{exec_id}][METADATA_SYNC] Failed to load metadata: {e}", exc_info=True)
+            st.error(f"Failed to load metadata for selected objects: {e}")
+
+    # Return True if main content needs update (metadata changed)
+    return metadata_added or metadata_removed
+
+
+def render_tree_navigation(session, databases: list[str]):
+    """Render the database/schema/object tree navigation using sac.tree with lazy loading on expand.
+
+    Uses @st.fragment to isolate tree interactions from main content reruns,
+    improving performance and eliminating header flicker.
+    """
+    # Header rendered OUTSIDE fragment - won't re-render on tree interactions
+    st.markdown(f"### {icon_header('select', 'Select Objects', size=24)}", unsafe_allow_html=True)
+
+    @st.fragment
+    def _tree_fragment():
+        """Fragment for tree interactions - only this reruns on selection/expansion."""
+        # Check if tree should be read-only (on Generate step)
+        # Steps: 0=Review, 1=Data Model, 2=Generate Output
+        # Lock selections on Generate step to prevent changes during file generation
+        wizard_step = st.session_state.get("wizard_step", 0)
+        is_read_only = wizard_step >= 2
+
+        # Calculate pending metadata load count BEFORE rendering header
+        pending_load_count = _get_pending_metadata_count()
+
+        # Selection status header (sticky, above tree)
+        # Returns a placeholder that can be updated during metadata loading
+        status_placeholder = render_selection_status_header(is_read_only, pending_load_count)
+
+        # Store placeholder in session state so _sync_metadata_with_selections can update it
+        st.session_state._status_header_placeholder = status_placeholder
+
+        # Clean up any corrupted session state
+        _clean_tree_session_state()
+
+        # Search filter
+        search_term = st.text_input(
+            "🔍 Filter databases",
+            placeholder="Type to filter by database name...",
+            key="search_filter"
+        ).strip().upper()
+
+        # Track filter changes to handle different scenarios:
+        # - Filter ACTIVATED (empty -> text or text -> different text): show unchecked
+        # - Filter CLEARED (text -> empty): show checkmarks for selected databases
+        prev_filter = st.session_state.get("_prev_search_filter", "")
+        filter_just_changed = (search_term != prev_filter)
+        filter_was_cleared = filter_just_changed and not search_term and prev_filter
+        filter_was_activated = filter_just_changed and search_term
+        st.session_state._prev_search_filter = search_term
+        if filter_just_changed:
+            logger.debug(f"[TREE_NAV] Filter changed: '{prev_filter}' -> '{search_term}' (cleared={filter_was_cleared}, activated={filter_was_activated})")
+
+        if not databases:
+            st.warning("No databases found.")
+            return
+
+        # Build tree items
+        tree_items, label_map = build_tree_items(databases, search_term)
+
+        if not tree_items:
+            st.info("No matching databases found.")
+            return
+
+        # Get pre-selection and expansion state
+        pre_selected = _get_pre_selected_labels()
+        open_index = _get_open_index()
+
+        # Check if pre_selected labels actually exist in tree items
+        # Only pass labels that exist in tree to avoid sac.tree confusion
+        all_tree_labels = set()
+        def collect_labels(items):
+            for item in items:
+                all_tree_labels.add(item.label)
+                if item.children:
+                    collect_labels(item.children)
+        collect_labels(tree_items)
+
+        # Track if we expect selections but tree can't show them (collapsed state or filtered)
+        expected_selections_missing = False
+        logger.debug(f"[TREE_NAV] all_tree_labels count: {len(all_tree_labels)}")
+
+        # Handle filter scenarios differently:
+        # - Filter ACTIVATED: show databases unchecked (user starts fresh in filtered view)
+        # - Filter CLEARED: show checkmarks for databases with selections
+        # - No filter change: normal logic
+        if filter_was_activated:
+            # User typed a filter - show filtered items UNCHECKED
+            # User must explicitly click to select in filtered view
+            pre_selected = []
+            logger.debug(f"[TREE_NAV] Filter activated - forcing empty pre_selected (unchecked)")
+        elif pre_selected:
+            # Normal case or filter cleared - compute proper pre_selected with parent labels
+            # Filter to only labels that exist in tree
+            valid_pre_selected = [l for l in pre_selected if l in all_tree_labels]
+            missing_count = len(pre_selected) - len(valid_pre_selected)
+            logger.debug(f"[TREE_NAV] pre_selected={len(pre_selected)}, valid={len(valid_pre_selected)}, missing={missing_count}")
+
+            # If object labels aren't visible (collapsed), add their parent labels instead
+            # This ensures checkmarks show on database/schema when children are selected but collapsed
+            if missing_count > 0:
+                # Group missing labels by database and schema
+                parent_labels_to_add = set()
+                for label in pre_selected:
+                    if label not in all_tree_labels:
+                        # Parse "DB.SCHEMA.OBJECT" format
+                        parts = label.split(".")
+                        if len(parts) >= 2:
+                            db_label = parts[0]  # Database label
+                            schema_label = f"{parts[0]}.{parts[1]}"  # Schema label
+                            # Add whichever parent exists in tree
+                            if schema_label in all_tree_labels:
+                                parent_labels_to_add.add(schema_label)
+                            elif db_label in all_tree_labels:
+                                parent_labels_to_add.add(db_label)
+
+                # Combine valid object labels with parent labels
+                valid_pre_selected = list(set(valid_pre_selected) | parent_labels_to_add)
+                logger.debug(f"[TREE_NAV] Added parent labels: {parent_labels_to_add}, total valid: {len(valid_pre_selected)}")
+
+            # If most labels are missing, tree is in collapsed state
+            if missing_count > len(pre_selected) // 2:
+                expected_selections_missing = True
+            # IMPORTANT: Pass empty list [] instead of None when no valid selections
+            # This explicitly tells sac.tree "nothing is selected" rather than relying
+            # on default/cached behavior which may auto-select items
+            pre_selected = valid_pre_selected if valid_pre_selected else []
+        else:
+            # Ensure we pass empty list, not None
+            pre_selected = []
+
+        # Dynamic key for tree reset (e.g., after creating semantic view or explicit reset)
+        # NOTE: We removed filter_hash from key because it caused tree to remount and ignore
+        # the index parameter, resulting in lost checkmarks. Instead, we use filter_just_changed
+        # guard to prevent processing stale selections when filter changes.
+        tree_key = f"object_tree_{st.session_state.get('tree_reset_counter', 0)}"
+        exec_id = st.session_state.get("_exec_id", 0)
+        logger.debug(f"[EXEC:{exec_id}][TREE_INPUT] tree_key={tree_key}, index={len(pre_selected) if pre_selected else 0} items, tree_items={len(tree_items)}")
+
+        # Show info message when selections are locked on Generate step
+        if is_read_only:
+            st.info("⚠️ Object selection is locked on the Generate step. Go back to modify selections.")
+
+        # Render tree component
+        # Note: We keep checkbox=True even in read-only mode because sac.tree doesn't support
+        # a disabled state. Instead, we skip processing selection changes in read-only mode below.
+        result = sac.tree(
+            items=tree_items,
+            index=pre_selected,
+            open_index=open_index,
+            label="Select objects:" if not is_read_only else "Selected objects (locked):",
+            icon="diagram-3",
+            color="#29B5E8" if not is_read_only else "#8A8A8A",  # Gray when locked
+            open_all=False,
+            checkbox=True,  # Keep checkboxes visible (changes ignored in read-only mode)
+            checkbox_strict=False,  # Enable cascading: selecting parent selects all children
+            show_line=True,
+            return_index=False,
+            key=tree_key
+        )
+
+        # Parse tree result and sync expansion state
+        selected, expanded = _parse_tree_result(result)
+        _sync_expansion_state(expanded, open_index)
+
+        logger.debug(f"[EXEC:{exec_id}][TREE_OUTPUT] selected={len(selected)} items, first 5: {selected[:5]}")
+        logger.debug(f"[EXEC:{exec_id}][TREE_EXPANDED] expanded_from_tree={len(expanded)}, expanded_nodes={len(st.session_state.expanded_nodes)}, first 3: {st.session_state.expanded_nodes[:3] if st.session_state.expanded_nodes else []}")
+        logger.debug(f"[EXEC:{exec_id}][TREE_STATE] pre_selected was: {len(pre_selected) if pre_selected else 0} items")
+
+        # Process lazy loading for expanded nodes
+        needs_lazy_rerun = _process_lazy_loading(session, label_map)
+
+        # CRITICAL FIX: Expand parent labels to child objects before comparison
+        # With checkbox_strict=False (cascade mode), sac.tree returns parent labels when all children
+        # are selected (e.g., returns 'TPCH_RICH_DB' instead of all 26 child objects).
+        # We must expand these parent labels to get accurate add/remove detection.
+        def expand_parent_labels(labels: set, lmap: dict) -> set:
+            """Expand database/schema labels to their child object labels.
+
+            IMPORTANT: Also includes the parent label itself if no children found.
+            This ensures database selections are detected even before objects are loaded.
+            """
+            expanded_labels = set()
+            for label in labels:
+                meta = lmap.get(label)
+                if not meta:
+                    expanded_labels.add(label)
+                    continue
+                label_type = meta[0]
+                if label_type == "object":
+                    expanded_labels.add(label)
+                elif label_type == "database":
+                    # Find all objects under this database
+                    db_name = meta[1]  # meta is (type, db, schema, name, obj_type) or similar
+                    found_children = False
+                    for other_label, other_meta in lmap.items():
+                        if other_meta[0] == "object" and other_meta[1] == db_name:
+                            expanded_labels.add(other_label)
+                            found_children = True
+                    # Keep database label if no children found (objects not loaded yet)
+                    # This ensures new database selections are detected for auto-loading
+                    if not found_children:
+                        expanded_labels.add(label)
+                elif label_type == "schema":
+                    # Find all objects under this schema
+                    db_name, schema_name = meta[1], meta[2]
+                    found_children = False
+                    for other_label, other_meta in lmap.items():
+                        if other_meta[0] == "object" and other_meta[1] == db_name and other_meta[2] == schema_name:
+                            expanded_labels.add(other_label)
+                            found_children = True
+                    # Keep schema label if no children found
+                    if not found_children:
+                        expanded_labels.add(label)
+            return expanded_labels
+
+        # Process tree selections (skip if lazy loading occurred or tree state is inconsistent)
+        pre_set = set(pre_selected) if pre_selected else set()
+        selected_set = set(selected)
+
+        # Expand parent labels to children for accurate comparison
+        expanded_selected = expand_parent_labels(selected_set, label_map)
+        logger.debug(f"[EXEC:{exec_id}][TREE_EXPAND] raw={len(selected_set)}, expanded={len(expanded_selected)}")
+
+        new_selections = expanded_selected - pre_set
+        removed_selections = pre_set - expanded_selected
+
+        logger.debug(f"[TREE_NAV] New selections (added): {len(new_selections)}: {list(new_selections)[:5]}")
+        logger.debug(f"[TREE_NAV] Removed selections: {len(removed_selections)}: {list(removed_selections)[:5]}")
+
+        # NOTE: We removed tree_state_mismatch check because it was blocking legitimate deselection.
+        # The _process_tree_selections function already preserves items from collapsed nodes
+        # via the visible_object_labels check, so this guard was redundant and harmful.
+
+        # Detect spurious database/schema selections: tree component with cascade mode
+        # reports parent labels as "selected" when all children are selected.
+        # BUT: Only mark as spurious if the database already has objects selected.
+        # A genuinely NEW database (no objects from it in selected_objects) is legitimate!
+        spurious_db_schema = False
+        has_legitimate_removals = len(removed_selections) > 0
+
+        # Build set of databases that already have objects selected
+        already_selected_dbs = {obj[0] for obj in st.session_state.selected_objects}
+
+        if len(pre_set) > 0 and new_selections and not has_legitimate_removals:
+            all_new_are_spurious = True  # Assume spurious until we find a genuine new db
+            for label in new_selections:
+                meta = label_map.get(label)
+                if meta and meta[0] == "database":
+                    db_name = meta[1]
+                    if db_name not in already_selected_dbs:
+                        # This is a genuinely NEW database - not spurious!
+                        all_new_are_spurious = False
+                        logger.debug(f"[TREE_NAV] Genuine new database selection: {label}")
+                        break
+                    else:
+                        logger.debug(f"[TREE_NAV] Spurious db selection (already has objects): {label}")
+                elif meta and meta[0] == "schema":
+                    # Schema selections could be spurious too, check if db already selected
+                    db_name = meta[1]
+                    if db_name not in already_selected_dbs:
+                        all_new_are_spurious = False
+                        break
+                else:
+                    # Object selections are never spurious
+                    all_new_are_spurious = False
+                    break
+
+            # Only block if ALL new selections are spurious parent labels
+            spurious_db_schema = all_new_are_spurious and any(
+                label_map.get(l, (None,))[0] in ("database", "schema") for l in new_selections
+            )
+
+        # Check if filter is active - if so, allow processing even with expected_selections_missing
+        # This fixes the bug where filtering to a new database didn't update selections
+        filter_active = bool(st.session_state.get("search_filter", "").strip())
+        # Only count new selections that exist in label_map (visible in current tree)
+        # This filters out stale selections from tree component that don't match filtered view
+        valid_new_selections = {s for s in new_selections if s in label_map}
+        has_new_selections = bool(valid_new_selections)
+
+        logger.debug(f"[EXEC:{exec_id}][GUARDS] is_read_only={is_read_only}, spurious={spurious_db_schema}, expected_missing={expected_selections_missing}, needs_lazy_rerun={needs_lazy_rerun}, removals={len(removed_selections)}, filter_active={filter_active}, has_new={has_new_selections}, valid_new={list(valid_new_selections)[:3]}, filter_just_changed={filter_just_changed}")
+
+        # Process selections and sync metadata
+        selection_needs_rerun = False
+        metadata_changed = False
+
+        # Skip processing if tree state is inconsistent or in read-only mode
+        if is_read_only:
+            logger.debug("[TREE_NAV] SKIPPING: read-only mode")
+            pass  # Read-only mode - don't process any selection changes
+        elif filter_just_changed and not has_new_selections:
+            # Filter just changed - tree remounted with fresh state
+            # Don't process empty/stale selection as "user deselected everything"
+            # BUT: If user made new selections (clicked something), process those
+            logger.debug("[TREE_NAV] SKIPPING: filter_just_changed (tree re-rendering)")
+            pass  # Wait for user to make explicit selections in new filtered view
+        elif spurious_db_schema:
+            logger.debug("[TREE_NAV] SKIPPING: spurious_db_schema")
+            pass  # Don't process spurious database/schema selections
+        elif expected_selections_missing and not (filter_active and has_new_selections):
+            # Only skip if expected_selections_missing AND (no filter OR no new selections)
+            # When filter is active and user made new selections, process them
+            logger.debug("[TREE_NAV] SKIPPING: expected_selections_missing (no filter or new selections)")
+            pass  # Don't process when tree can't show selections
+        else:
+            # Process selections even during lazy loading
+            # This ensures objects are added to selected_objects immediately when a database is selected
+            logger.debug("[TREE_NAV] PROCESSING selections via _process_tree_selections")
+            selection_needs_rerun = _process_tree_selections(session, selected, label_map)
+
+        # Sync metadata with selections (returns True if metadata changed)
+        metadata_changed = _sync_metadata_with_selections(session)
+
+        # State consistency check: selected_objects vs views_metadata
+        selection_count = len(st.session_state.selected_objects)
+        metadata_count = len(st.session_state.views_metadata)
+
+        # Debug: Show state in sidebar for troubleshooting
+        if selection_count != metadata_count:
+            st.warning(f"⚠️ State mismatch: {selection_count} selected, {metadata_count} loaded")
+            logger.warning(f"[EXEC:{exec_id}][STATE_DESYNC] selected_objects={selection_count}, views_metadata={metadata_count}")
+        else:
+            logger.debug(f"[EXEC:{exec_id}][STATE_OK] selected_objects={selection_count}, views_metadata={metadata_count}")
+
+        # Selective rerun logic:
+        # - Metadata changed (add/remove objects)? Full rerun - main content needs update
+        # - Just lazy loading (expand/collapse)? Try fragment rerun, fall back to full rerun
+        if metadata_changed:
+            logger.debug(f"[EXEC:{exec_id}][RERUN] Full rerun - metadata changed")
+            st.rerun()  # Full app rerun - main content needs to show changes
+        elif needs_lazy_rerun or selection_needs_rerun:
+            logger.debug(f"[EXEC:{exec_id}][RERUN] Rerun for lazy loading or selection state")
+            # scope="fragment" only works during fragment reruns, not initial render
+            # Use full rerun to ensure consistency
+            st.rerun()
+
+    # Execute the fragment
+    _tree_fragment()
+
+
 def main():
-	Ab='Cancel';Aa='One to Many';AZ='One to One';AY='Many to One';AX='Many to Many (*:*)';AW='One to Many (1:*)';AV='One to One (1:1)';AU='Many to One (*:1)';AT='To Column';AS='To Table';AR='From Column';AQ='From Table';AP='snowpark_session';AO='reset_app';AN='is_local';AM='warehouse';AL='server';AK='SnowflakeSemanticViewsConnector.msi';AJ='assets';A7='editing_rel_id';v='1';u='*';t='← Back to Review';s=', ';r='unknown';k='primary';R='stretch';E='many';C='one'
-	if _G not in st.session_state:st.session_state._exec_id=0
-	st.session_state._exec_id+=1;Ac=st.session_state._exec_id;logger.debug(f"[EXEC:{Ac}] === NEW RENDER CYCLE ===");init_session_state();sync_from_legacy();A8=Path(__file__).parent/_P/'snowflake.svg';st.set_page_config(page_title='Power BI Semantic Model Generator',page_icon=str(A8)if A8.exists()else'❄️',layout='wide');inject_custom_css();Ad=get_svg_icon('snowflake',size=48);A9=Path(__file__).parent/AJ/AK;Ae=A9.exists();Af,Ag=st.columns([6,1])
-	with Af:st.markdown(f'''
+    """Main application entry point."""
+    # Execution ID tracking for debugging reruns
+    if "_exec_id" not in st.session_state:
+        st.session_state._exec_id = 0
+    st.session_state._exec_id += 1
+    exec_id = st.session_state._exec_id
+    logger.debug(f"[EXEC:{exec_id}] === NEW RENDER CYCLE ===")
+
+    # Initialize session state with centralized AppState
+    # This handles creation, migration, and legacy key sync in one call
+    init_session_state()
+
+    # Sync any changes from legacy session_state back to AppState
+    # This captures widget changes that directly modify session_state
+    sync_from_legacy()
+
+    # Page configuration - use Snowflake logo as favicon
+    favicon_path = Path(__file__).parent / "img" / "snowflake.svg"
+    st.set_page_config(
+        page_title="Power BI Semantic Model Generator",
+        page_icon=str(favicon_path) if favicon_path.exists() else "❄️",
+        layout="wide"
+    )
+
+    # Inject custom Snowflake-style CSS
+    inject_custom_css()
+
+    # Header with Snowflake logo and connector download
+    snowflake_icon = get_svg_icon("snowflake", size=48)
+
+    # Check if MSI exists for header download button
+    msi_path = Path(__file__).parent / "assets" / "SnowflakeSemanticViewsConnector.msi"
+    msi_exists = msi_path.exists()
+
+    # Header row with title and download button on same line
+    header_col, button_col = st.columns([6, 1])
+
+    with header_col:
+        st.markdown(f"""
             <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 4px;">
-                {Ad}
+                {snowflake_icon}
                 <div style="flex: 1;">
                     <h1 style="margin: 0; padding: 0;">Power BI Semantic Model Generator</h1>
                     <p style="margin: 0; color: #6c757d; font-size: 0.875rem;">
@@ -469,211 +1728,851 @@ def main():
                     </p>
                 </div>
             </div>
-        ''',unsafe_allow_html=_A)
-	with Ag:
-		st.markdown('<div style="height: 8px;"></div>',unsafe_allow_html=_A)
-		if Ae:Ah=A9.read_bytes();st.download_button(label='Get Connector',data=Ah,file_name=AK,mime='application/x-msi',help='Download the Power BI connector (.msi) - required to query Snowflake Semantic Views',key='header_msi_download')
-	show_progress_indicator()
-	try:M=get_snowflake_session();st.session_state.snowpark_session=M;logger.info('Snowflake session established successfully')
-	except FileNotFoundError as I:handle_error(I,operation='Snowflake Configuration',show_in_ui=_A,suggestion='Create ~/.snowflake/connections.toml with your Snowflake credentials, or deploy this app to Streamlit in Snowflake');return
-	except ImportError as I:handle_error(I,operation='Loading Dependencies',show_in_ui=_A,details='pip install snowflake-snowpark-python cryptography',suggestion='Install the required packages using pip');return
-	except Exception as I:handle_error(I,operation='Snowflake Connection',show_in_ui=_A);return
-	try:N=get_session_info(M)
-	except Exception as I:st.warning(f"Could not get connection info: {I}");N={AL:r,AM:'XSMALL',AN:_A}
-	st.session_state.conn_info=N
-	try:AA=get_databases(M);logger.debug(f"Loaded {len(AA)} databases")
-	except Exception as I:logger.error(f"Error fetching databases: {I}",exc_info=_A);handle_error(I,operation='Loading Databases',show_in_ui=_A);return
-	with st.sidebar:
-		Ai,Aj=st.columns([.55,.45],gap='small',vertical_alignment='center')
-		with Ai:
-			AB=Path(__file__).parent/AJ/'logo_snowflake_blue.png'
-			if AB.exists():st.image(str(AB),width=140)
-		with Aj:Ak=st.button('Reset',key=AO,type='secondary',icon=':material/refresh:',use_container_width=_A)
-		if Ak:
-			Al=st.session_state.get(_V,0);Am={'conn_info'};An=[A for A in st.session_state.keys()if A not in Am]
-			for Ao in An:del st.session_state[Ao]
-			st.session_state.wizard_step=0;st.session_state.views_metadata=[];st.session_state.selected_objects=[];st.session_state.search_filter='';st.session_state.tree_reset_counter=Al+1;st.session_state._just_reset=_A;log_user_action(AO);st.rerun()
-		st.divider();render_tree_navigation(M,AA);st.divider();st.markdown(f"### {icon_header('connected','Connection Info',size=24)}",unsafe_allow_html=_A);Ap='🏠 Local'if N.get(AN,_A)else f"{get_svg_icon('cloud',16)} Snowflake";st.markdown(f"**Environment:** {Ap}",unsafe_allow_html=_A);st.text(f"Server: {N.get(AL,r)}");st.text(f"Warehouse: {N.get(AM,r)}");st.text(f"User: {N.get('user',r)}")
-		if'error'in N:st.error(f"Connection error: {N['error']}")
-	S=get_wizard_step();logger.debug(f"Rendering wizard step {S}");Aq=get_app_state()
-	if is_page_implemented(S):
-		logger.debug(f"Using page system for step {S}")
-		if render_current_step(M,Aq):return
-	if S==0:
-		st.markdown(f"## {icon_header('verified','Review Selected Objects',size=28)}",unsafe_allow_html=_A)
-		if not st.session_state.views_metadata:st.info('👈 Use the **sidebar tree navigator** to select tables, views, and semantic views.')
-		else:
-			BJ=sum(len(A.columns)for A in st.session_state.views_metadata);w=any(A.object_type==_H for A in st.session_state.views_metadata);x=any(A.object_type in(_J,_M)for A in st.session_state.views_metadata)
-			if w and x:st.info('**Mixed selection:** Semantic views use Custom Connector, standard tables use Native Snowflake Connector.')
-			for H in st.session_state.views_metadata:
-				Ar=get_object_icon_html(H.object_type,size=20);As=get_connector_badge_html(H.object_type);st.markdown(f"{Ar} **{H.full_name}** ({len(H.columns)} columns){As}",unsafe_allow_html=_A)
-				if H.table_metadata and H.table_metadata.comment:st.caption(f"📝 {H.table_metadata.comment}")
-				with st.expander('Show columns',expanded=_B):display_column_metadata(H)
-			At={A.view for A in st.session_state.views_metadata};y=set()
-			for H in st.session_state.views_metadata:
-				if H.relationships:
-					for A in H.relationships:
-						if A.to_table not in At:y.add(A.to_table)
-			if y:st.warning(f"**💡 Suggested tables:** {s.join(sorted(y))}")
-			st.divider()
-			if st.button('Next: Design Data Model ->',type=k,width=R,key='review_next_btn'):logger.debug('Button clicked - navigating to step 1');st.session_state.wizard_step=1;st.rerun()
-	elif S==1:
-		logger.debug(f"Rendering step 1, views_metadata count: {len(st.session_state.get(_I,[]))}");st.markdown(f"## {icon_header('data_engineering','Design Data Model',size=28)}",unsafe_allow_html=_A)
-		if not st.session_state.views_metadata:
-			st.warning('No objects selected.')
-			if st.button(t):st.session_state.wizard_step=0;st.rerun()
-		elif len(st.session_state.views_metadata)==1:
-			st.info('Single object selected - no relationships to configure.')
-			if FLOW_AVAILABLE:render_schema_visualizer(tables=st.session_state.views_metadata,relationships=[],key='single_object_graph_main')
-			st.divider();Y,Z=st.columns(2)
-			with Y:
-				if st.button(t):st.session_state.wizard_step=0;st.rerun()
-			with Z:
-				if st.button('NEXT: DOWNLOAD PBI WORKBOOK ->',type=k,width=R):st.session_state.wizard_step=2;st.rerun()
-		else:
-			w=any(A.object_type==_H for A in st.session_state.views_metadata);x=any(A.object_type in(_J,_M)for A in st.session_state.views_metadata);D=collect_all_relationships(st.session_state.views_metadata,session=st.session_state.get(AP))
-			if D:
-				M=st.session_state.get(AP);O={A.view:A for A in st.session_state.views_metadata}
-				for A in D:
-					F=O.get(A.from_table);G=O.get(A.to_table)
-					if F and G and M:enrich_relationship_with_cardinality(M,A,F,G)
-			if w and x and D:
-				AC={A.view:A.object_type for A in st.session_state.views_metadata};a=[]
-				for A in D:
-					Au=AC.get(A.from_table,_J);Av=AC.get(A.to_table,_J);Aw=Au==_H;Ax=Av==_H
-					if Aw!=Ax:a.append(A)
-				if a:st.warning(f"**⚠️ Cross-connector relationships detected ({len(a)})**\n\nRelationships between tables using different connectors may need to be created manually in Power BI Desktop.\n\nAffected: {s.join(f'{A.from_table}->{A.to_table}'for A in a[:3])}{'...'if len(a)>3 else''}")
-			if _O not in st.session_state:st.session_state.selected_relationships={}
-			if D:
-				for A in D:
-					if A.relationship_id not in st.session_state.selected_relationships:st.session_state.selected_relationships[A.relationship_id]=_A
-				Ay={A.relationship_id for A in D};Az={A.relationship_id for A in st.session_state.get(_K,[])};st.session_state.selected_relationships={A:B for(A,B)in st.session_state.selected_relationships.items()if A in Ay or A in Az};AD=[A for A in D if st.session_state.selected_relationships.get(A.relationship_id,_A)];_,A_=detect_ambiguous_paths(AD);l={A.relationship_id for A in A_};T=st.session_state.get(_K,[]);U=D+T;BK=sum(1 for A in U if st.session_state.selected_relationships.get(A.relationship_id,_A));P=detect_role_playing_dimensions(AD)
-				if P:
-					if'duplicate_role_playing_dims'not in st.session_state:st.session_state.duplicate_role_playing_dims={A:_A for A in P}
-					else:
-						for AE in P:
-							if AE not in st.session_state.duplicate_role_playing_dims:st.session_state.duplicate_role_playing_dims[AE]=_A
-						st.session_state.duplicate_role_playing_dims={A:B for(A,B)in st.session_state.duplicate_role_playing_dims.items()if A in P}
-			else:l=set();P={}
-			T=st.session_state.get(_K,[]);U=D+T;B0,B1=st.columns([1,1])
-			with B0:
-				if'show_add_rel_form'not in st.session_state:st.session_state.show_add_rel_form=_B
-				if st.button('+ Add Relationship',key='toggle_add_rel'):st.session_state.show_add_rel_form=not st.session_state.show_add_rel_form;st.rerun()
-				if st.session_state.show_add_rel_form:
-					J=[A.view for A in st.session_state.views_metadata];b={A.view:[A.name for A in A.columns]for A in st.session_state.views_metadata}
-					with st.container(border=_A):
-						st.markdown('**Add New Relationship**');Y,Z=st.columns(2)
-						with Y:V=st.selectbox(AQ,options=J,key='add_rel_from_table');c=b.get(V,[]);z=st.selectbox(AR,options=c,key='add_rel_from_col')
-						with Z:AF=[A for A in J if A!=V];d=st.selectbox(AS,options=AF if AF else J,key='add_rel_to_table');e=b.get(d,[]);A0=st.selectbox(AT,options=e,key='add_rel_to_col')
-						st.markdown('**Cardinality**');A1=[AU,AV,AW,AX];A2=st.radio('Relationship type',options=A1,index=0,key='add_rel_cardinality',horizontal=_A,label_visibility='collapsed',help='Many to One is most common (e.g., Orders -> Customers)')
-						if AY in A2:K,L=E,C
-						elif AZ in A2:K,L=C,C
-						elif Aa in A2:K,L=C,E
-						else:K,L=E,E
-						f,g=st.columns(2)
-						with f:
-							if st.button(Ab,key='cancel_add_rel',width=R):st.session_state.show_add_rel_form=_B;st.rerun()
-						with g:
-							if st.button('Add',key='confirm_add_rel',type=k,width=R):
-								if V and z and d and A0:
-									O={A.view:A for A in st.session_state.views_metadata};F=O.get(V);G=O.get(d);W=create_manual_relationship(from_table=V,from_columns=z,to_table=d,to_columns=A0,from_database=F.database if F else _C,from_schema=F.schema if F else _C,to_database=G.database if G else _C,to_schema=G.schema if G else _C,from_cardinality=K,to_cardinality=L)
-									if _K not in st.session_state:st.session_state.manual_relationships=[]
-									B2={A.relationship_id for A in st.session_state.manual_relationships}
-									if W.relationship_id not in B2:st.session_state.manual_relationships.append(W);st.session_state.selected_relationships[W.relationship_id]=_A;log_user_action('add_manual_relationship',{'from':f"{V}.{z}",'to':f"{d}.{A0}"});st.session_state.show_add_rel_form=_B;st.rerun()
-									else:st.warning('This relationship already exists.')
-				if not D and not T:st.info("No foreign key constraints detected in Snowflake. Use 'Add Relationship' above to manually define relationships between tables.")
-				st.markdown('---')
-				if U:
-					f,g=st.columns(2)
-					with f:
-						if st.button('Select All',key='select_all_rels',width=R):
-							for A in U:B=A.relationship_id;st.session_state.selected_relationships[B]=_A;st.session_state[f"rel_{B}"]=_A
-							st.rerun()
-					with g:
-						if st.button('Deselect All',key='deselect_all_rels',width=R):
-							for A in U:B=A.relationship_id;st.session_state.selected_relationships[B]=_B;st.session_state[f"rel_{B}"]=_B
-							st.rerun()
-				if T:
-					st.markdown('**✏️ Manual Relationships**')
-					for A in T:
-						B=A.relationship_id;h=B in l and st.session_state.selected_relationships.get(B,_A);K=getattr(A,'from_cardinality',E);L=getattr(A,'to_cardinality',C);m=f"({u if K==E else v}:{u if L==E else v})";Q=f"{A.from_table}.{A.from_column} -> {A.to_table}.{A.to_column} {m} `[Manual]`"
-						if h:Q+=' ⚠️'
-						X='User-created relationship'
-						if h:X+=' (inactive - resolves ambiguous paths)'
-						B3=st.session_state.get(A7)==B
-						if B3:
-							with st.container(border=_A):
-								st.markdown('**Edit Relationship**');J=[A.view for A in st.session_state.views_metadata];b={A.view:[A.name for A in A.columns]for A in st.session_state.views_metadata};O={A.view:A for A in st.session_state.views_metadata};B4,B5=st.columns(2)
-								with B4:B6=J.index(A.from_table)if A.from_table in J else 0;A3=st.selectbox(AQ,options=J,index=B6,key=f"edit_from_table_{B}");c=b.get(A3,[]);B7=c.index(A.from_column)if A.from_column in c else 0;B8=st.selectbox(AR,options=c,index=B7,key=f"edit_from_col_{B}")
-								with B5:B9=J.index(A.to_table)if A.to_table in J else 0;A4=st.selectbox(AS,options=J,index=B9,key=f"edit_to_table_{B}");e=b.get(A4,[]);BA=e.index(A.to_column)if A.to_column in e else 0;BB=st.selectbox(AT,options=e,index=BA,key=f"edit_to_col_{B}")
-								A1=[AU,AV,AW,AX]
-								if K==E and L==C:n=0
-								elif K==C and L==C:n=1
-								elif K==C and L==E:n=2
-								else:n=3
-								A5=st.radio('Cardinality',options=A1,index=n,key=f"edit_card_{B}",horizontal=_A)
-								if AY in A5:o,p=E,C
-								elif AZ in A5:o,p=C,C
-								elif Aa in A5:o,p=C,E
-								else:o,p=E,E
-								f,g=st.columns(2)
-								with f:
-									if st.button(Ab,key=f"cancel_edit_{B}"):del st.session_state[A7];st.rerun()
-								with g:
-									if st.button('Save',key=f"save_edit_{B}",type=k):st.session_state.manual_relationships=[A for A in st.session_state.manual_relationships if A.relationship_id!=B];st.session_state.selected_relationships.pop(B,_C);F=O.get(A3);G=O.get(A4);W=create_manual_relationship(from_table=A3,from_columns=B8,to_table=A4,to_columns=BB,from_database=F.database if F else _C,from_schema=F.schema if F else _C,to_database=G.database if G else _C,to_schema=G.schema if G else _C,from_cardinality=o,to_cardinality=p);st.session_state.manual_relationships.append(W);st.session_state.selected_relationships[W.relationship_id]=_A;del st.session_state[A7];st.rerun()
-						else:
-							BC,BD,BE=st.columns([.8,.1,.1])
-							with BC:i=st.checkbox(Q,value=st.session_state.selected_relationships.get(B,_A),key=f"rel_{B}",help=X);st.session_state.selected_relationships[B]=i
-							with BD:
-								if st.button('✏️',key=f"edit_{B}",help='Edit this relationship'):st.session_state.editing_rel_id=B;st.rerun()
-							with BE:
-								if st.button('🗑️',key=f"del_{B}",help='Delete this relationship'):st.session_state.manual_relationships=[A for A in st.session_state.manual_relationships if A.relationship_id!=B];st.session_state.selected_relationships.pop(B,_C);st.rerun()
-				if D:
-					st.markdown(f"**{get_svg_icon('copy',16)} Detected Relationships**",unsafe_allow_html=_A)
-					for A in D:
-						B=A.relationship_id;h=B in l and st.session_state.selected_relationships.get(B,_A);q=A.from_table==A.to_table;m=''
-						if hasattr(A,'cardinality')and A.cardinality:BF=v if A.cardinality.from_cardinality==C else u;BG=v if A.cardinality.to_cardinality==C else u;m=f" ({BF}:{BG})"
-						Q=f"{A.from_table}.{A.from_column} -> {A.to_table}.{A.to_column}{m}"
-						if A.name:Q+=f" ({A.name})"
-						if q:Q+=' 🔄 `[Self-ref]`'
-						elif h:Q+=' ⚠️'
-						X=_C;AG=_B
-						if q:X='Self-referential relationship - Power BI does not support this. Will NOT be exported.';AG=_A
-						elif h:X='Inactive - resolves ambiguous paths'
-						i=st.checkbox(Q,value=_B if q else st.session_state.selected_relationships.get(B,_A),key=f"rel_{B}",help=X,disabled=AG)
-						if not q:st.session_state.selected_relationships[B]=i
-					if l:st.caption('⚠️ = inactive relationship')
-					if any(A.from_table==A.to_table for A in D):st.caption('🔄 = self-referential (not exported to Power BI)')
-					if P:
-						st.markdown('---');st.markdown('**Role-Playing Dimensions**');st.caption('Dimensions used by multiple tables - will be duplicated with role prefixes.')
-						for(j,AH)in P.items():BH=[f"{A}_{j}"for A in AH];i=st.checkbox(f"{j} -> {s.join(BH)}",value=st.session_state.duplicate_role_playing_dims.get(j,_A),key=f"dup_{j}",help=f"Referenced by: {s.join(AH)}");st.session_state.duplicate_role_playing_dims[j]=i
-			with B1:
-				if len(st.session_state.views_metadata)>1 and FLOW_AVAILABLE:st.caption('Drag to rearrange, scroll to zoom');BI=[A for A in U if st.session_state.selected_relationships.get(A.relationship_id,_A)];render_schema_visualizer(tables=st.session_state.views_metadata,relationships=BI,key='main_schema_graph');show_graph_legend()
-				else:st.info('Schema diagram available when 2+ tables selected')
-			st.divider();Y,Z=st.columns(2)
-			with Y:
-				if st.button(t):st.session_state.wizard_step=0;st.rerun()
-			with Z:
-				if st.button('Next: Generate Output ->',type=k,width=R):st.session_state.wizard_step=2;st.rerun()
-	elif S==2:
-		st.markdown(f"## {icon_header('rocket','Generate Output',size=28)}",unsafe_allow_html=_A);A6=len(st.session_state.get(_U,[]));AI=len(st.session_state.get(_I,[]));logger.warning(f"[FALLBACK] Step 2 fallback rendering: selected_objects={A6}, views_metadata={AI}")
-		if not st.session_state.get(_I):
-			st.warning(f"No metadata loaded. ({A6} objects selected but metadata not loaded)");st.caption('This is a fallback page. The normal page system may have failed.')
-			if A6>0:st.info("Selected objects exist but metadata wasn't loaded. Try going back and reselecting.")
-			if st.button(t):st.session_state.wizard_step=0;st.rerun()
-		else:
-			st.info(f"Fallback mode: {AI} objects ready for generation.");st.caption('The normal page system may have failed. Please try refreshing.')
-			if'_page_render_error'in st.session_state:st.error(f"Page error: {st.session_state._page_render_error}")
-			if st.button('← Back to Design Data Model'):st.session_state.wizard_step=1;st.rerun()
-	st.divider();st.markdown(f"*Written By Alex Ross, Principal Solution Engineer at Snowflake | © {datetime.now().year}*");st.caption('ℹ️ Provided as-is under [MIT License](https://opensource.org/licenses/MIT). Not officially supported by Snowflake.')
-def _render_dax_solution(rel,to_meta,risk):
-	B=to_meta;A=risk;st.caption('ℹ️ Query-time calculation in Power BI - no Snowflake objects needed');st.warning("⚠️ **DAX SUMX/VALUES pattern only works in Import mode.** In DirectQuery, this pattern fails when tables exceed 1 million rows due to Power BI's row limit for the `VALUES()` function.")
-	if not B or not A or not A.affected_measures:st.warning('Table metadata not available');return
-	C=[A for A in B.columns if A.is_primary_key];D=C[0].name if C else _C
-	if D:
-		st.markdown('**DAX measures to copy to Power BI:**')
-		for(G,E)in enumerate(A.affected_measures[:3]):F=generate_dax_measure(measure_name=E,source_table=rel.to_table,measure_column=E,pk_column=D,aggregation='SUM');st.code(F,language='dax')
-		if len(A.affected_measures)>3:st.caption(f"*...and {len(A.affected_measures)-3} more measures*")
-		st.info('\n**📖 How to use DAX measures:**\n\n1. Open your Power BI report\n2. Select the table in the Data pane\n3. Click "New Measure" in the ribbon\n4. Paste the DAX code above\n\n**Why this works:**\n- `VALUES()` gets distinct primary keys\n- `SUMX()` iterates and aggregates at correct grain\n')
-	else:st.warning('Cannot generate DAX - no primary key found in table')
-if __name__=='__main__':main()
+        """, unsafe_allow_html=True)
+
+    with button_col:
+        # Vertical alignment spacer + download button
+        st.markdown('<div style="height: 8px;"></div>', unsafe_allow_html=True)
+        if msi_exists:
+            msi_bytes = msi_path.read_bytes()
+            st.download_button(
+                label="Get Connector",
+                data=msi_bytes,
+                file_name="SnowflakeSemanticViewsConnector.msi",
+                mime="application/x-msi",
+                help="Download the Power BI connector (.msi) - required to query Snowflake Semantic Views",
+                key="header_msi_download"
+            )
+
+    # Progress indicator
+    show_progress_indicator()
+
+    # Initialize Snowflake session with structured error handling
+    try:
+        if "_snowpark_session::manual" in st.session_state:
+            session = st.session_state["_snowpark_session::manual"]
+        else:
+            session = get_snowflake_session()
+        # Store session in session_state for cardinality enrichment
+        st.session_state.snowpark_session = session
+        logger.info("Snowflake session established successfully")
+    except (FileNotFoundError, KeyError) as e:
+        # No usable connections.toml connection - render an interactive
+        # connection form instead of dead-ending (issue #3).
+        available = list_available_connections()
+        if available:
+            st.info(f"Connections found in connections.toml: {', '.join(available)}")
+        session = render_connection_form()
+        if session is None:
+            return
+        st.session_state.snowpark_session = session
+        st.rerun()
+    except ImportError as e:
+        handle_error(
+            e,
+            operation="Loading Dependencies",
+            show_in_ui=True,
+            details="pip install snowflake-snowpark-python cryptography",
+            suggestion="Install the required packages using pip",
+        )
+        return
+    except Exception as e:
+        handle_error(e, operation="Snowflake Connection", show_in_ui=True)
+        return
+
+    if is_running_in_snowflake() is False:
+        with st.sidebar:
+            if st.button("Reconnect to Snowflake", help="Drop the cached session and create a new one"):
+                st.session_state.pop("_snowpark_session::manual", None)
+                try:
+                    reconnect_local_session()
+                except Exception:
+                    pass
+                st.rerun()
+
+    # Get session info for display and model generation
+    try:
+        conn_info = get_session_info(session)
+    except Exception as e:
+        st.warning(f"Could not get connection info: {e}")
+        conn_info = {"server": "unknown", "warehouse": "XSMALL", "warehouse_missing": False, "is_local": True}
+
+    # Store conn_info in session state for page modules to access
+    st.session_state.conn_info = conn_info
+
+    # Load databases with error handling
+    try:
+        databases = get_databases(session)
+        logger.debug(f"Loaded {len(databases)} databases")
+    except Exception as e:
+        logger.error(f"Error fetching databases: {e}", exc_info=True)
+        handle_error(e, operation="Loading Databases", show_in_ui=True)
+        return
+
+    # Sidebar - Objects, Connection Info
+    with st.sidebar:
+        # Snowflake logo and Reset button in horizontal layout
+        logo_col, btn_col = st.columns([0.55, 0.45], gap="small", vertical_alignment="center")
+
+        with logo_col:
+            logo_path = Path(__file__).parent / "assets" / "logo_snowflake_blue.png"
+            if logo_path.exists():
+                st.image(str(logo_path), width=140)
+
+        with btn_col:
+            reset_clicked = st.button("Reset", key="reset_app", type="secondary", icon=":material/refresh:", use_container_width=True)
+
+        # Reset App - immediate reset without confirmation
+        if reset_clicked:
+            # Get current reset counter BEFORE clearing state
+            current_counter = st.session_state.get("tree_reset_counter", 0)
+            # Clear ALL session state except connection info
+            keys_to_keep = {"conn_info"}
+            keys_to_delete = [k for k in st.session_state.keys() if k not in keys_to_keep]
+            for key in keys_to_delete:
+                del st.session_state[key]
+            # Reset wizard to step 0
+            st.session_state.wizard_step = 0
+            st.session_state.views_metadata = []
+            st.session_state.selected_objects = []
+            # Explicitly clear the database filter text box
+            st.session_state.search_filter = ""
+            # Increment reset counter so tree gets a fresh key and doesn't restore old state
+            st.session_state.tree_reset_counter = current_counter + 1
+            # Flag to skip preserved selections on next tree render
+            st.session_state._just_reset = True
+            log_user_action("reset_app")
+            st.rerun()
+
+        st.divider()
+
+        # Object Selection (tree navigation - always visible in sidebar)
+        render_tree_navigation(session, databases)
+
+        st.divider()
+
+        # Connection Info
+        st.markdown(f"### {icon_header('connected', 'Connection Info', size=24)}", unsafe_allow_html=True)
+        env_badge = "🏠 Local" if conn_info.get("is_local", True) else f"{get_svg_icon('cloud', 16)} Snowflake"
+        st.markdown(f"**Environment:** {env_badge}", unsafe_allow_html=True)
+        st.text(f"Server: {conn_info.get('server', 'unknown')}")
+        st.text(f"Warehouse: {conn_info.get('warehouse', 'unknown')}")
+        st.text(f"User: {conn_info.get('user', 'unknown')}")
+
+        # Show error if present
+        if "error" in conn_info:
+            st.error(f"Connection error: {conn_info['error']}")
+
+    # Main content area - multi-page wizard (one step at a time)
+    current_step = get_wizard_step()
+    logger.debug(f"Rendering wizard step {current_step}")
+
+    # Get app state for page system integration
+    app_state = get_app_state()
+
+    # Page modules are auto-imported in pages/__init__.py
+    # This ensures @register_page decorators run even on Streamlit reload
+
+    # Use the new page system for all steps
+    if is_page_implemented(current_step):
+        logger.debug(f"Using page system for step {current_step}")
+        if render_current_step(session, app_state):
+            return  # Page handled rendering
+        # If render_current_step returns False, fall through to legacy rendering
+
+    # === LEGACY RENDERING (fallback) ===
+    # This code is kept for backward compatibility during migration
+    # Once all pages are verified working, this can be removed
+
+    # === STEP 0: REVIEW SELECTED OBJECTS (HOME) ===
+    if current_step == 0:
+        st.markdown(f"## {icon_header('verified', 'Review Selected Objects', size=28)}", unsafe_allow_html=True)
+
+        if not st.session_state.views_metadata:
+            st.info("👈 Use the **sidebar tree navigator** to select tables, views, and semantic views.")
+        else:
+            total_columns = sum(len(m.columns) for m in st.session_state.views_metadata)
+            has_semantic_views = any(m.object_type == "SEMANTIC_VIEW" for m in st.session_state.views_metadata)
+            has_standard_tables = any(m.object_type in ("TABLE", "VIEW") for m in st.session_state.views_metadata)
+
+            if has_semantic_views and has_standard_tables:
+                st.info(
+                    "**Mixed selection:** Semantic views use Custom Connector, "
+                    "standard tables use Native Snowflake Connector."
+                )
+
+            # Show each object
+            for metadata in st.session_state.views_metadata:
+                icon_html = get_object_icon_html(metadata.object_type, size=20)
+                badge_html = get_connector_badge_html(metadata.object_type)
+                st.markdown(f'{icon_html} **{metadata.full_name}** ({len(metadata.columns)} columns){badge_html}', unsafe_allow_html=True)
+
+                if metadata.table_metadata and metadata.table_metadata.comment:
+                    st.caption(f"📝 {metadata.table_metadata.comment}")
+
+                with st.expander("Show columns", expanded=False):
+                    display_column_metadata(metadata)
+
+            # Check for missing related tables
+            selected_tables = {m.view for m in st.session_state.views_metadata}
+            missing_tables = set()
+            for metadata in st.session_state.views_metadata:
+                if metadata.relationships:
+                    for rel in metadata.relationships:
+                        if rel.to_table not in selected_tables:
+                            missing_tables.add(rel.to_table)
+
+            if missing_tables:
+                st.warning(f"**💡 Suggested tables:** {', '.join(sorted(missing_tables))}")
+
+            # Navigation (no back button - this is the home page)
+            st.divider()
+            if st.button("Next: Design Data Model ->", type="primary", width="stretch", key="review_next_btn"):
+                logger.debug("Button clicked - navigating to step 1")
+                st.session_state.wizard_step = 1
+                st.rerun()
+
+    # === STEP 1: DESIGN DATA MODEL ===
+    elif current_step == 1:
+        logger.debug(f"Rendering step 1, views_metadata count: {len(st.session_state.get('views_metadata', []))}")
+        st.markdown(f"## {icon_header('data_engineering', 'Design Data Model', size=28)}", unsafe_allow_html=True)
+
+        if not st.session_state.views_metadata:
+            st.warning("No objects selected.")
+            if st.button("← Back to Review"):
+                st.session_state.wizard_step = 0
+                st.rerun()
+        elif len(st.session_state.views_metadata) == 1:
+            st.info("Single object selected - no relationships to configure.")
+
+            # Show single-object visualizer
+            if FLOW_AVAILABLE:
+                render_schema_visualizer(
+                    tables=st.session_state.views_metadata,
+                    relationships=[],
+                    key="single_object_graph_main"
+                )
+
+            st.divider()
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("← Back to Review"):
+                    st.session_state.wizard_step = 0
+                    st.rerun()
+            with col2:
+                if st.button("NEXT: DOWNLOAD PBI WORKBOOK ->", type="primary", width='stretch'):
+                    st.session_state.wizard_step = 2
+                    st.rerun()
+        else:
+            has_semantic_views = any(m.object_type == "SEMANTIC_VIEW" for m in st.session_state.views_metadata)
+            has_standard_tables = any(m.object_type in ("TABLE", "VIEW") for m in st.session_state.views_metadata)
+            all_relationships = collect_all_relationships(
+                st.session_state.views_metadata,
+                session=st.session_state.get("snowpark_session")
+            )
+
+            # Enrich relationships with cardinality and fan-out risk
+            if all_relationships:
+                session = st.session_state.get("snowpark_session")
+                metadata_by_name = {m.view: m for m in st.session_state.views_metadata}
+                for rel in all_relationships:
+                    from_meta = metadata_by_name.get(rel.from_table)
+                    to_meta = metadata_by_name.get(rel.to_table)
+                    if from_meta and to_meta and session:
+                        enrich_relationship_with_cardinality(session, rel, from_meta, to_meta)
+
+            # v3.0: Check for cross-connector relationships and warn
+            if has_semantic_views and has_standard_tables and all_relationships:
+                # Create lookup for object types by name
+                object_types = {m.view: m.object_type for m in st.session_state.views_metadata}
+
+                # Find relationships that span connector types
+                cross_connector_rels = []
+                for rel in all_relationships:
+                    from_type = object_types.get(rel.from_table, "TABLE")
+                    to_type = object_types.get(rel.to_table, "TABLE")
+                    from_is_semantic = from_type == "SEMANTIC_VIEW"
+                    to_is_semantic = to_type == "SEMANTIC_VIEW"
+                    if from_is_semantic != to_is_semantic:
+                        cross_connector_rels.append(rel)
+
+                if cross_connector_rels:
+                    st.warning(
+                        f"**⚠️ Cross-connector relationships detected ({len(cross_connector_rels)})**\n\n"
+                        f"Relationships between tables using different connectors may need to be "
+                        f"created manually in Power BI Desktop.\n\n"
+                        f"Affected: {', '.join(f'{r.from_table}->{r.to_table}' for r in cross_connector_rels[:3])}"
+                        f"{'...' if len(cross_connector_rels) > 3 else ''}"
+                    )
+
+            # Initialize selected relationships in session state (even if empty)
+            if "selected_relationships" not in st.session_state:
+                st.session_state.selected_relationships = {}
+
+            if all_relationships:
+                # Initialize selected relationships for detected FK relationships
+                for rel in all_relationships:
+                    if rel.relationship_id not in st.session_state.selected_relationships:
+                        st.session_state.selected_relationships[rel.relationship_id] = True
+                # Remove relationships that no longer exist
+                current_ids = {rel.relationship_id for rel in all_relationships}
+                # Keep manual relationships (those not in current_ids are manual)
+                manual_rel_ids = {r.relationship_id for r in st.session_state.get("manual_relationships", [])}
+                st.session_state.selected_relationships = {
+                    k: v for k, v in st.session_state.selected_relationships.items()
+                    if k in current_ids or k in manual_rel_ids
+                }
+
+                # Detect ambiguous paths
+                selected_rels = [rel for rel in all_relationships
+                                 if st.session_state.selected_relationships.get(rel.relationship_id, True)]
+                _, inactive_rels = detect_ambiguous_paths(selected_rels)
+                inactive_ids = {rel.relationship_id for rel in inactive_rels}
+
+                # Count selected (including manual relationships)
+                manual_relationships = st.session_state.get("manual_relationships", [])
+                all_rels = all_relationships + manual_relationships
+                selected_count = sum(
+                    1 for rel in all_rels
+                    if st.session_state.selected_relationships.get(rel.relationship_id, True)
+                )
+
+                # Detect role-playing dimensions (needed for left column)
+                role_playing_dims = detect_role_playing_dimensions(selected_rels)
+                if role_playing_dims:
+                    # Initialize session state for role-playing dimension duplication
+                    if "duplicate_role_playing_dims" not in st.session_state:
+                        st.session_state.duplicate_role_playing_dims = {
+                            dim: True for dim in role_playing_dims
+                        }
+                    else:
+                        # Add any new role-playing dimensions
+                        for dim in role_playing_dims:
+                            if dim not in st.session_state.duplicate_role_playing_dims:
+                                st.session_state.duplicate_role_playing_dims[dim] = True
+                        # Remove dimensions that no longer exist
+                        st.session_state.duplicate_role_playing_dims = {
+                            k: v for k, v in st.session_state.duplicate_role_playing_dims.items()
+                            if k in role_playing_dims
+                        }
+
+            else:
+                # No FK relationships detected - initialize defaults for UI
+                inactive_ids = set()
+                role_playing_dims = {}
+
+            # === Data Model Configuration (always shown when 2+ objects) ===
+            # Get manual relationships (available even without FK relationships)
+            manual_relationships = st.session_state.get("manual_relationships", [])
+            all_rels = all_relationships + manual_relationships
+
+            # Two-column layout: options on left, diagram on right
+            left_col, right_col = st.columns([1, 1])
+
+            with left_col:
+                # === Add Relationship Form ===
+                # Initialize form visibility state
+                if "show_add_rel_form" not in st.session_state:
+                    st.session_state.show_add_rel_form = False
+
+                # Toggle button
+                if st.button("+ Add Relationship", key="toggle_add_rel"):
+                    st.session_state.show_add_rel_form = not st.session_state.show_add_rel_form
+                    st.rerun()
+
+                if st.session_state.show_add_rel_form:
+                    # Build table/column options
+                    table_names = [m.view for m in st.session_state.views_metadata]
+                    table_columns = {m.view: [c.name for c in m.columns] for m in st.session_state.views_metadata}
+
+                    with st.container(border=True):
+                        st.markdown("**Add New Relationship**")
+
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            from_table = st.selectbox(
+                                "From Table",
+                                options=table_names,
+                                key="add_rel_from_table",
+                            )
+                            from_cols = table_columns.get(from_table, [])
+                            from_column = st.selectbox(
+                                "From Column",
+                                options=from_cols,
+                                key="add_rel_from_col",
+                            )
+
+                        with col2:
+                            # Filter out same table for "to" options
+                            to_options = [t for t in table_names if t != from_table]
+                            to_table = st.selectbox(
+                                "To Table",
+                                options=to_options if to_options else table_names,
+                                key="add_rel_to_table",
+                            )
+                            to_cols = table_columns.get(to_table, [])
+                            to_column = st.selectbox(
+                                "To Column",
+                                options=to_cols,
+                                key="add_rel_to_col",
+                            )
+
+                        # Cardinality selection
+                        st.markdown("**Cardinality**")
+                        cardinality_options = [
+                            "Many to One (*:1)",
+                            "One to One (1:1)",
+                            "One to Many (1:*)",
+                            "Many to Many (*:*)",
+                        ]
+                        selected_cardinality = st.radio(
+                            "Relationship type",
+                            options=cardinality_options,
+                            index=0,
+                            key="add_rel_cardinality",
+                            horizontal=True,
+                            label_visibility="collapsed",
+                            help="Many to One is most common (e.g., Orders -> Customers)",
+                        )
+
+                        # Parse cardinality selection
+                        if "Many to One" in selected_cardinality:
+                            from_card, to_card = "many", "one"
+                        elif "One to One" in selected_cardinality:
+                            from_card, to_card = "one", "one"
+                        elif "One to Many" in selected_cardinality:
+                            from_card, to_card = "one", "many"
+                        else:
+                            from_card, to_card = "many", "many"
+
+                        # Action buttons
+                        btn_col1, btn_col2 = st.columns(2)
+                        with btn_col1:
+                            if st.button("Cancel", key="cancel_add_rel", width='stretch'):
+                                st.session_state.show_add_rel_form = False
+                                st.rerun()
+
+                        with btn_col2:
+                            if st.button("Add", key="confirm_add_rel", type="primary", width='stretch'):
+                                if from_table and from_column and to_table and to_column:
+                                    metadata_by_name = {m.view: m for m in st.session_state.views_metadata}
+                                    from_meta = metadata_by_name.get(from_table)
+                                    to_meta = metadata_by_name.get(to_table)
+
+                                    new_rel = create_manual_relationship(
+                                        from_table=from_table,
+                                        from_columns=from_column,
+                                        to_table=to_table,
+                                        to_columns=to_column,
+                                        from_database=from_meta.database if from_meta else None,
+                                        from_schema=from_meta.schema if from_meta else None,
+                                        to_database=to_meta.database if to_meta else None,
+                                        to_schema=to_meta.schema if to_meta else None,
+                                        from_cardinality=from_card,
+                                        to_cardinality=to_card,
+                                    )
+
+                                    # Initialize manual_relationships if needed
+                                    if "manual_relationships" not in st.session_state:
+                                        st.session_state.manual_relationships = []
+
+                                    # Check for duplicates
+                                    existing_ids = {r.relationship_id for r in st.session_state.manual_relationships}
+                                    if new_rel.relationship_id not in existing_ids:
+                                        st.session_state.manual_relationships.append(new_rel)
+                                        st.session_state.selected_relationships[new_rel.relationship_id] = True
+                                        log_user_action("add_manual_relationship", {
+                                            "from": f"{from_table}.{from_column}",
+                                            "to": f"{to_table}.{to_column}",
+                                        })
+                                        st.session_state.show_add_rel_form = False
+                                        st.rerun()
+                                    else:
+                                        st.warning("This relationship already exists.")
+
+                # Info message when no FK relationships detected
+                if not all_relationships and not manual_relationships:
+                    st.info(
+                        "No foreign key constraints detected in Snowflake. "
+                        "Use 'Add Relationship' above to manually define relationships between tables."
+                    )
+
+                st.markdown("---")
+
+                # Select/Deselect all buttons (only show if there are relationships)
+                if all_rels:
+                    btn_col1, btn_col2 = st.columns(2)
+                    with btn_col1:
+                        if st.button("Select All", key="select_all_rels", width="stretch"):
+                            for rel in all_rels:
+                                rel_id = rel.relationship_id
+                                st.session_state.selected_relationships[rel_id] = True
+                                st.session_state[f"rel_{rel_id}"] = True
+                            st.rerun()
+                    with btn_col2:
+                        if st.button("Deselect All", key="deselect_all_rels", width="stretch"):
+                            for rel in all_rels:
+                                rel_id = rel.relationship_id
+                                st.session_state.selected_relationships[rel_id] = False
+                                st.session_state[f"rel_{rel_id}"] = False
+                            st.rerun()
+
+                # Show manual relationships (if any)
+                if manual_relationships:
+                    st.markdown("**✏️ Manual Relationships**")
+                    for rel in manual_relationships:
+                        rel_id = rel.relationship_id
+                        is_inactive = rel_id in inactive_ids and st.session_state.selected_relationships.get(rel_id, True)
+
+                        # Get cardinality display
+                        from_card = getattr(rel, 'from_cardinality', 'many')
+                        to_card = getattr(rel, 'to_cardinality', 'one')
+                        card_str = f"({'*' if from_card == 'many' else '1'}:{'*' if to_card == 'many' else '1'})"
+
+                        label = f"{rel.from_table}.{rel.from_column} -> {rel.to_table}.{rel.to_column} {card_str} `[Manual]`"
+                        if is_inactive:
+                            label += " ⚠️"
+
+                        help_text = "User-created relationship"
+                        if is_inactive:
+                            help_text += " (inactive - resolves ambiguous paths)"
+
+                        # Check if we're currently editing this relationship
+                        is_editing = st.session_state.get("editing_rel_id") == rel_id
+
+                        if is_editing:
+                            # Show edit form
+                            with st.container(border=True):
+                                st.markdown("**Edit Relationship**")
+
+                                table_names = [m.view for m in st.session_state.views_metadata]
+                                table_columns = {m.view: [c.name for c in m.columns] for m in st.session_state.views_metadata}
+                                metadata_by_name = {m.view: m for m in st.session_state.views_metadata}
+
+                                edit_col1, edit_col2 = st.columns(2)
+
+                                with edit_col1:
+                                    from_idx = table_names.index(rel.from_table) if rel.from_table in table_names else 0
+                                    edit_from_table = st.selectbox(
+                                        "From Table",
+                                        options=table_names,
+                                        index=from_idx,
+                                        key=f"edit_from_table_{rel_id}",
+                                    )
+                                    from_cols = table_columns.get(edit_from_table, [])
+                                    from_col_idx = from_cols.index(rel.from_column) if rel.from_column in from_cols else 0
+                                    edit_from_column = st.selectbox(
+                                        "From Column",
+                                        options=from_cols,
+                                        index=from_col_idx,
+                                        key=f"edit_from_col_{rel_id}",
+                                    )
+
+                                with edit_col2:
+                                    to_idx = table_names.index(rel.to_table) if rel.to_table in table_names else 0
+                                    edit_to_table = st.selectbox(
+                                        "To Table",
+                                        options=table_names,
+                                        index=to_idx,
+                                        key=f"edit_to_table_{rel_id}",
+                                    )
+                                    to_cols = table_columns.get(edit_to_table, [])
+                                    to_col_idx = to_cols.index(rel.to_column) if rel.to_column in to_cols else 0
+                                    edit_to_column = st.selectbox(
+                                        "To Column",
+                                        options=to_cols,
+                                        index=to_col_idx,
+                                        key=f"edit_to_col_{rel_id}",
+                                    )
+
+                                # Cardinality selection
+                                cardinality_options = ["Many to One (*:1)", "One to One (1:1)", "One to Many (1:*)", "Many to Many (*:*)"]
+                                if from_card == "many" and to_card == "one":
+                                    card_idx = 0
+                                elif from_card == "one" and to_card == "one":
+                                    card_idx = 1
+                                elif from_card == "one" and to_card == "many":
+                                    card_idx = 2
+                                else:
+                                    card_idx = 3
+
+                                edit_cardinality = st.radio(
+                                    "Cardinality",
+                                    options=cardinality_options,
+                                    index=card_idx,
+                                    key=f"edit_card_{rel_id}",
+                                    horizontal=True,
+                                )
+
+                                # Parse cardinality
+                                if "Many to One" in edit_cardinality:
+                                    new_from_card, new_to_card = "many", "one"
+                                elif "One to One" in edit_cardinality:
+                                    new_from_card, new_to_card = "one", "one"
+                                elif "One to Many" in edit_cardinality:
+                                    new_from_card, new_to_card = "one", "many"
+                                else:
+                                    new_from_card, new_to_card = "many", "many"
+
+                                # Action buttons
+                                btn_col1, btn_col2 = st.columns(2)
+                                with btn_col1:
+                                    if st.button("Cancel", key=f"cancel_edit_{rel_id}"):
+                                        del st.session_state["editing_rel_id"]
+                                        st.rerun()
+
+                                with btn_col2:
+                                    if st.button("Save", key=f"save_edit_{rel_id}", type="primary"):
+                                        # Remove old relationship
+                                        st.session_state.manual_relationships = [
+                                            r for r in st.session_state.manual_relationships
+                                            if r.relationship_id != rel_id
+                                        ]
+                                        st.session_state.selected_relationships.pop(rel_id, None)
+
+                                        # Create updated relationship
+                                        from_meta = metadata_by_name.get(edit_from_table)
+                                        to_meta = metadata_by_name.get(edit_to_table)
+
+                                        new_rel = create_manual_relationship(
+                                            from_table=edit_from_table,
+                                            from_columns=edit_from_column,
+                                            to_table=edit_to_table,
+                                            to_columns=edit_to_column,
+                                            from_database=from_meta.database if from_meta else None,
+                                            from_schema=from_meta.schema if from_meta else None,
+                                            to_database=to_meta.database if to_meta else None,
+                                            to_schema=to_meta.schema if to_meta else None,
+                                            from_cardinality=new_from_card,
+                                            to_cardinality=new_to_card,
+                                        )
+
+                                        st.session_state.manual_relationships.append(new_rel)
+                                        st.session_state.selected_relationships[new_rel.relationship_id] = True
+                                        del st.session_state["editing_rel_id"]
+                                        st.rerun()
+                        else:
+                            # Normal display with checkbox + edit + delete buttons
+                            chk_col, edit_col, del_col = st.columns([0.8, 0.1, 0.1])
+
+                            with chk_col:
+                                checked = st.checkbox(
+                                    label,
+                                    value=st.session_state.selected_relationships.get(rel_id, True),
+                                    key=f"rel_{rel_id}",
+                                    help=help_text,
+                                )
+                                st.session_state.selected_relationships[rel_id] = checked
+
+                            with edit_col:
+                                if st.button("✏️", key=f"edit_{rel_id}", help="Edit this relationship"):
+                                    st.session_state.editing_rel_id = rel_id
+                                    st.rerun()
+
+                            with del_col:
+                                if st.button("🗑️", key=f"del_{rel_id}", help="Delete this relationship"):
+                                    st.session_state.manual_relationships = [
+                                        r for r in st.session_state.manual_relationships
+                                        if r.relationship_id != rel_id
+                                    ]
+                                    st.session_state.selected_relationships.pop(rel_id, None)
+                                    st.rerun()
+
+                # Show detected (FK) relationships
+                if all_relationships:
+                    st.markdown(f"**{get_svg_icon('copy', 16)} Detected Relationships**", unsafe_allow_html=True)
+
+                    # Show each original relationship with checkbox
+                    for rel in all_relationships:
+                        rel_id = rel.relationship_id
+                        is_inactive = rel_id in inactive_ids and st.session_state.selected_relationships.get(rel_id, True)
+                        is_self_ref = rel.from_table == rel.to_table
+
+                        # Build cardinality string
+                        card_str = ""
+                        if hasattr(rel, 'cardinality') and rel.cardinality:
+                            from_sym = "1" if rel.cardinality.from_cardinality == "one" else "*"
+                            to_sym = "1" if rel.cardinality.to_cardinality == "one" else "*"
+                            card_str = f" ({from_sym}:{to_sym})"
+
+                        # Build label with cardinality and inactive/self-ref indicator
+                        label = f"{rel.from_table}.{rel.from_column} -> {rel.to_table}.{rel.to_column}{card_str}"
+                        if rel.name:
+                            label += f" ({rel.name})"
+                        if is_self_ref:
+                            label += " 🔄 `[Self-ref]`"
+                        elif is_inactive:
+                            label += " ⚠️"
+
+                        # Checkbox for this relationship
+                        help_text = None
+                        disabled = False
+                        if is_self_ref:
+                            help_text = "Self-referential relationship - Power BI does not support this. Will NOT be exported."
+                            disabled = True
+                        elif is_inactive:
+                            help_text = "Inactive - resolves ambiguous paths"
+
+                        checked = st.checkbox(
+                            label,
+                            value=False if is_self_ref else st.session_state.selected_relationships.get(rel_id, True),
+                            key=f"rel_{rel_id}",
+                            help=help_text,
+                            disabled=disabled,
+                        )
+                        if not is_self_ref:
+                            st.session_state.selected_relationships[rel_id] = checked
+
+                    if inactive_ids:
+                        st.caption("⚠️ = inactive relationship")
+                    # Note about self-referential
+                    if any(rel.from_table == rel.to_table for rel in all_relationships):
+                        st.caption("🔄 = self-referential (not exported to Power BI)")
+
+                    # Role-playing dimensions section
+                    if role_playing_dims:
+                        st.markdown("---")
+                        st.markdown("**Role-Playing Dimensions**")
+                        st.caption("Dimensions used by multiple tables - will be duplicated with role prefixes.")
+
+                        for dim_name, referencing_tables in role_playing_dims.items():
+                            new_tables = [f"{ref}_{dim_name}" for ref in referencing_tables]
+
+                            checked = st.checkbox(
+                                f"{dim_name} -> {', '.join(new_tables)}",
+                                value=st.session_state.duplicate_role_playing_dims.get(dim_name, True),
+                                key=f"dup_{dim_name}",
+                                help=f"Referenced by: {', '.join(referencing_tables)}",
+                            )
+                            st.session_state.duplicate_role_playing_dims[dim_name] = checked
+
+            with right_col:
+                # Schema diagram
+                if len(st.session_state.views_metadata) > 1 and FLOW_AVAILABLE:
+                    st.caption("Drag to rearrange, scroll to zoom")
+                    selected_rels_for_diagram = [
+                        rel for rel in all_rels
+                        if st.session_state.selected_relationships.get(rel.relationship_id, True)
+                    ]
+                    render_schema_visualizer(
+                        tables=st.session_state.views_metadata,
+                        relationships=selected_rels_for_diagram,
+                        key="main_schema_graph"
+                    )
+                    show_graph_legend()
+                else:
+                    st.info("Schema diagram available when 2+ tables selected")
+
+            # Navigation buttons for Step 1 (Data Model)
+            st.divider()
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("← Back to Review"):
+                    st.session_state.wizard_step = 0
+                    st.rerun()
+            with col2:
+                if st.button("Next: Generate Output ->", type="primary", width="stretch"):
+                    st.session_state.wizard_step = 2
+                    st.rerun()
+
+    # === STEP 2: GENERATE OUTPUT (FALLBACK) ===
+    # NOTE: Step 2 is normally handled by pages/step_generate.py via the page system.
+    # This fallback only executes if the page system fails to render.
+    elif current_step == 2:
+        st.markdown(f"## {icon_header('rocket', 'Generate Output', size=28)}", unsafe_allow_html=True)
+
+        # Debug info
+        selection_count = len(st.session_state.get("selected_objects", []))
+        metadata_count = len(st.session_state.get("views_metadata", []))
+        logger.warning(f"[FALLBACK] Step 2 fallback rendering: selected_objects={selection_count}, views_metadata={metadata_count}")
+
+        if not st.session_state.get("views_metadata"):
+            st.warning(f"No metadata loaded. ({selection_count} objects selected but metadata not loaded)")
+            st.caption("This is a fallback page. The normal page system may have failed.")
+
+            if selection_count > 0:
+                st.info("Selected objects exist but metadata wasn't loaded. Try going back and reselecting.")
+
+            if st.button("← Back to Review"):
+                st.session_state.wizard_step = 0
+                st.rerun()
+        else:
+            st.info(f"Fallback mode: {metadata_count} objects ready for generation.")
+            st.caption("The normal page system may have failed. Please try refreshing.")
+
+            # Show the actual error if available
+            if "_page_render_error" in st.session_state:
+                st.error(f"Page error: {st.session_state._page_render_error}")
+
+            if st.button("← Back to Design Data Model"):
+                st.session_state.wizard_step = 1
+                st.rerun()
+
+    # Footer
+    st.divider()
+    st.markdown(
+        "*Written By Alex Ross, Principal Solution Engineer at Snowflake | "
+        f"© {datetime.now().year}*"
+    )
+    st.caption(
+        "ℹ️ Provided as-is under [MIT License](https://opensource.org/licenses/MIT). "
+        "Not officially supported by Snowflake."
+    )
+
+
+# === Helper functions for rendering fix solutions ===
+
+
+def _render_dax_solution(rel, to_meta, risk):
+    """Render DAX measure solution UI (Import mode only)."""
+    st.caption("ℹ️ Query-time calculation in Power BI - no Snowflake objects needed")
+
+    # Warning about DirectQuery limitation
+    st.warning(
+        "⚠️ **DAX SUMX/VALUES pattern only works in Import mode.** "
+        "In DirectQuery, this pattern fails when tables exceed 1 million rows "
+        "due to Power BI's row limit for the `VALUES()` function."
+    )
+
+    if not to_meta or not risk or not risk.affected_measures:
+        st.warning("Table metadata not available")
+        return
+
+    # Get PK column for DAX measure
+    pk_cols = [c for c in to_meta.columns if c.is_primary_key]
+    pk_col = pk_cols[0].name if pk_cols else None
+
+    if pk_col:
+        st.markdown("**DAX measures to copy to Power BI:**")
+        for i, measure in enumerate(risk.affected_measures[:3]):
+            dax_code = generate_dax_measure(
+                measure_name=measure,
+                source_table=rel.to_table,
+                measure_column=measure,
+                pk_column=pk_col,
+                aggregation="SUM"
+            )
+            st.code(dax_code, language="dax")
+
+        if len(risk.affected_measures) > 3:
+            st.caption(f"*...and {len(risk.affected_measures) - 3} more measures*")
+
+        st.info("""
+**📖 How to use DAX measures:**
+
+1. Open your Power BI report
+2. Select the table in the Data pane
+3. Click "New Measure" in the ribbon
+4. Paste the DAX code above
+
+**Why this works:**
+- `VALUES()` gets distinct primary keys
+- `SUMX()` iterates and aggregates at correct grain
+""")
+    else:
+        st.warning("Cannot generate DAX - no primary key found in table")
+
+
+if __name__ == "__main__":
+    main()
