@@ -1,0 +1,14 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["streamlit/streamlit_antd_components"]
+
+[tool.ruff.lint]
+# Scoped to the highest-value bug classes (undefined names, syntax errors)
+# rather than full style/unused-import enforcement. The existing codebase
+# has pre-existing findings (unused imports/vars, a benign duplicate
+# function-name import) that are lower risk to leave as documented
+# follow-up cleanup than to mass-edit without an end-to-end UI test
+# environment available. Run `ruff check --select F` locally for the
+# fuller (non-blocking) report.
+select = ["F821", "E9"]
