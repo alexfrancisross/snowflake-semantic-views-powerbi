@@ -11,6 +11,7 @@ tests/pqtest/*.cred.json
 docs/
 .ruff_cache/
 tests/
+PORTING-NOTES.md
 connector/installer/bin/
 connector/installer/obj/
 
