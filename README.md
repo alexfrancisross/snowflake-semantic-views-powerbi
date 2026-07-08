@@ -15,7 +15,6 @@ This connector was built to bridge the gap between Snowflake's semantic layer an
 - [Building the Connector from Source](#building-the-connector-from-source)
 - [PBIT Generator App](#pbit-generator-app)
 - [Sample Data](#sample-data)
-- [Running Tests](#running-tests)
 - [Known Limitations](#known-limitations)
 - [Troubleshooting](#troubleshooting)
 - [Version](#version)
@@ -65,16 +64,24 @@ This means you get all the flexibility of SQL—filtering, sorting, grouping, pa
 root/
 ├── connector/
 │   ├── src/                                # Readable M source for the connector
+│   ├── installer/                          # WiX MSI installer project (Product.wxs, installer.wixproj)
 │   ├── build.ps1                           # Rebuilds SnowflakeSemanticViews.mez from src/
 │   ├── SnowflakeSemanticViews.mez          # Power BI custom connector
 │   └── SnowflakeSemanticViewsConnector.msi # Windows installer
-├── img/                                    # Screenshots
+├── img/                                    # Screenshots used in this README
 ├── streamlit/                              # PBIT Generator web application (readable source)
-│   └── tests/                              # pytest unit tests
-├── tests/
-│   ├── integration/                        # Live-Snowflake SQL regression tests
-│   └── dax-studio/                         # DAX Studio query pack (Windows/PBI Desktop only)
-└── tpch_sample_data/                       # Sample Snowflake scripts for testing
+│   ├── pages/                              # App step pages (review, model, generate)
+│   ├── components/                         # UI components (tree navigator, column selector)
+│   ├── utils/                              # Core logic (metadata fetch, SQL/M generation, validation)
+│   ├── templates/                          # PBIT template assets
+│   ├── assets/                             # Bundled connector .mez/.msi served by the app
+│   ├── deploy.py, deploy_config.yaml,      # Streamlit-in-Snowflake deployment
+│   │   snowflake.yml
+│   └── streamlit_antd_components/          # Vendored UI widget library
+├── tpch_sample_data/                       # Sample Snowflake scripts for testing
+├── pyproject.toml                          # Ruff lint config
+├── CHANGELOG.md
+└── LICENSE
 ```
 
 ## Features
@@ -153,8 +160,8 @@ result to your Custom Connectors folder (see
 in Power BI Desktop.
 
 The connector also ships a lightweight self-test you can run from the
-Power Query SDK / PQTest evaluation pane without a Power BI Desktop
-session: `SnowflakeSemanticViews.RunUnitTests()` returns a table of
+Power Query SDK evaluation pane without a Power BI Desktop session:
+`SnowflakeSemanticViews.RunUnitTests()` returns a table of
 `{TestName, Expected, Actual, Pass}` covering server URL parsing
 (org-account, legacy locator, PrivateLink) and duplicate column-name
 resolution.
@@ -241,38 +248,6 @@ The `tpch_sample_data/` folder contains SQL scripts to set up a test environment
 - Edge-case semantic views for regression testing (mismatched logical/physical names, SQL-defined inline tables, mixed-case quoted identifiers)
 
 Run the scripts in order (01, 02, 03, 04) to create a complete test environment.
-
-## Running Tests
-
-**Unit tests** (Streamlit app logic, no Snowflake connection needed):
-
-```bash
-cd streamlit
-pip install -r requirements-dev.txt
-pytest tests/ -v
-ruff check .
-```
-
-**Integration tests** (runs the connector's generated SQL shapes against a live Snowflake account with `tpch_sample_data/` loaded):
-
-```bash
-python tests/integration/run_integration_tests.py [connection_name]
-```
-
-**PQTest connector tests** (Windows only; executes the connector's actual M code end-to-end via the Power Query SDK's PQTest.exe, with committed `.pqout` snapshots - see `tests/pqtest/README.md`):
-
-```powershell
-cd tests\pqtest
-.\Set-PQCredential.ps1   # once per session (live categories)
-.\Run-PQTests.ps1        # or -Category unit for offline-only
-```
-
-**DAX Studio tests** (Windows only, requires Power BI Desktop and [DAX Studio](https://daxstudio.org/) installed - see `tests/dax-studio/README.md`):
-
-```powershell
-cd tests\dax-studio
-.\Run-DaxStudioTests.ps1
-```
 
 ## Known Limitations
 
