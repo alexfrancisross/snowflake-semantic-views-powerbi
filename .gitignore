@@ -11,6 +11,14 @@ tests/pqtest/*.cred.json
 docs/
 .ruff_cache/
 tests/
-pyproject.toml
 connector/installer/bin/
 connector/installer/obj/
+
+# Editor / OS cruft
+.vs/
+.vscode/
+.idea/
+*.log
+.env
+Thumbs.db
+.DS_Store
