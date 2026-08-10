@@ -1,11 +1,11 @@
 // SnowflakeSemanticViews Power BI Connector
-// Version 3.3.0
+// Version 3.3.1
 //
 // Connects to Snowflake Semantic Views with full DirectQuery support.
 // Supports PAT, KeyPair, and Microsoft Account (OAuth) authentication.
 // Uses ADBC (Arrow Database Connectivity) for query execution.
 
-[Version = "3.3.0"]
+[Version = "3.3.1"]
 section SnowflakeSemanticViews;
 
 // =============================================================================
@@ -2341,16 +2341,72 @@ BuildGroupByClauseContent = (dimensions as list, metrics as list, facts as list,
 //
 // BuildOrderByClause - Build SQL ORDER BY clause from sort specifications
 //
+// Snowflake semantic views reject ORDER BY over a dimension that isn't in the
+// SELECT/GROUP BY list (error 002024 / 42601). Power BI can still hand us a sort
+// key for a column it dropped from the projection (e.g. a dimension filtered to a
+// single value, which the engine treats as provably constant) - see issue #7.
+// So every sort key is resolved to its 1-based ordinal in the actual SELECT list
+// instead of being quoted verbatim; terms that don't resolve to anything are
+// dropped rather than emitted as a dangling/invalid ORDER BY term.
+//
 // Parameters:
 //   orderBy - List of records with Name and Order fields
+//   outputNames - Ordered list of column names/aliases as they appear in the SELECT list
+//   aliasMap - Optional record mapping Power BI aliases (e.g. "a0") to source column names,
+//              used in reverse to resolve a sort-by-metric-name to its output alias
 //
 // Returns: ORDER BY clause (with " ORDER BY " prefix), or empty string if no sorting
+//          (or if every sort key was dropped because it isn't projected)
 //
-BuildOrderByClause = (orderBy as nullable list) as text =>
+BuildOrderByClause = (orderBy as nullable list, outputNames as list, optional aliasMap as record) as text =>
     if orderBy <> null and not List.IsEmpty(orderBy) then
-        " ORDER BY " & Text.Combine(List.Transform(orderBy, each
-            EscapeIdentifier([Name]) & (if [Order] = Order.Descending then " DESC" else " ASC")
-        ), ", ")
+        let
+            resolveOrdinal = (rawName as text) as nullable number =>
+                let
+                    // 1. Try the name verbatim (dimensions, dedup aliases like REGION_2, a0/a1)
+                    posVerbatim = List.PositionOf(outputNames, rawName),
+                    // 2. Try stripping a "t0."/"[t0].[X]" table-prefix Power BI may have added
+                    stripped = StripTablePrefix(rawName),
+                    posStripped = if stripped <> null then List.PositionOf(outputNames, stripped) else -1,
+                    // 3. Reverse-lookup through aliasMap: metric name -> Power BI alias (e.g. a0)
+                    reverseAlias = if aliasMap <> null then
+                        let
+                            aliasFieldNames = Record.FieldNames(aliasMap),
+                            matchField = List.First(
+                                List.Select(aliasFieldNames, each Record.Field(aliasMap, _) = rawName),
+                                null
+                            )
+                        in
+                            matchField
+                    else null,
+                    posViaAlias = if reverseAlias <> null then List.PositionOf(outputNames, reverseAlias) else -1,
+                    pos = if posVerbatim >= 0 then posVerbatim
+                        else if posStripped >= 0 then posStripped
+                        else posViaAlias
+                in
+                    if pos >= 0 then pos + 1 else null,
+
+            resolvedTerms = List.Transform(orderBy, each
+                let
+                    ordinal = resolveOrdinal([Name])
+                in
+                    if ordinal <> null then
+                        Text.From(ordinal) & (if [Order] = Order.Descending then " DESC" else " ASC")
+                    else
+                        let
+                            _ = Diagnostics.Trace(
+                                TraceLevel.Warning,
+                                "BuildOrderByClause/DroppedSortKey",
+                                [Name = [Name], OutputNames = outputNames]
+                            )
+                        in
+                            null
+            ),
+            validTerms = List.RemoveNulls(resolvedTerms)
+        in
+            if not List.IsEmpty(validTerms) then
+                " ORDER BY " & Text.Combine(validTerms, ", ")
+            else ""
     else "";
 
 //
@@ -2480,6 +2536,16 @@ GenerateSemanticViewQuery = (qualifiedName as text, selectedColumns as list, met
         // Track if we generated all columns from metadata (for GROUP BY logic)
         generatedAllColumns = Text.Length(selectCols) = 0 and Text.Length(selectClause) > 0,
 
+        // Output names as they actually appear in the SELECT list, in order - used to resolve
+        // ORDER BY sort keys to ordinal positions (see BuildOrderByClause, issue #7)
+        outputNames = if generatedAllColumns then
+            List.Transform(metadata, each [ColumnName])
+        else
+            List.Combine({
+                List.Transform(filteredMetadata, each if Record.HasFields(_, "OutputAlias") then [OutputAlias] else [ColumnName]),
+                computedColNames
+            }),
+
         // When generating from full metadata, need to compute dimensions for GROUP BY
         // Use ordinal positions (1-based) to avoid duplicate column name ambiguity
         allDimensionsForGroupBy = if generatedAllColumns then
@@ -2516,7 +2582,7 @@ GenerateSemanticViewQuery = (qualifiedName as text, selectedColumns as list, met
         innerSql = "SELECT " & distinctKeyword & selectClause & " FROM " & qualifiedName &
             whereClause &
             (if needsGroupBy then " GROUP BY " & effectiveGroupByCols else "") &
-            BuildOrderByClause(orderBy) &
+            BuildOrderByClause(orderBy, outputNames, aliasMap) &
             (if not shouldWrapInSubquery then BuildLimitOffsetClause(limit, offset) else ""),
 
         // If METRIC filters exist AND we have columns, wrap in subquery and apply filters on outer query
@@ -2757,6 +2823,42 @@ shared SnowflakeSemanticViews.RunUnitTests = () as table =>
         },
         dupResult = ResolveDuplicateColumnNames(dupInput),
 
+        // --- BuildOrderByClause / GenerateSemanticViewQuery: issue #7 ordinal-based ORDER BY ---
+        obMetadata = {
+            [ColumnName = "REGION_NAME", ColumnType = "TEXT", ColumnKind = KIND_DIMENSION],
+            [ColumnName = "ORDER_YEAR", ColumnType = "INT64", ColumnKind = KIND_DIMENSION],
+            [ColumnName = "NET_REVENUE", ColumnType = "FLOAT", ColumnKind = KIND_METRIC]
+        },
+        obView = "TPCH_RICH_DB.TPCH_RICH_SVS.SV_SALES_ANALYSIS",
+
+        // Sort on a projected dimension -> ordinal 1
+        obSqlProjected = GenerateSemanticViewQuery(obView, {"REGION_NAME"}, obMetadata, null, null,
+            {[Name = "REGION_NAME", Order = Order.Ascending]}),
+
+        // Sort on a dimension NOT in selectedColumns, filtered to a single value (issue #7 regression):
+        // the column is dropped from the projection, so the sort key must be dropped too, not emitted
+        // as a dangling ORDER BY on an unprojected column
+        obSqlDroppedFilter = GenerateSemanticViewQuery(obView, {"REGION_NAME"}, obMetadata, null, null,
+            {[Name = "ORDER_YEAR", Order = Order.Ascending]}, null, null,
+            {[Column = "ORDER_YEAR", Operator = "=", Value = 1998]}),
+
+        // Sort by a metric's source name while the projection carries a Power BI alias (a0) ->
+        // resolved via the reverse aliasMap lookup
+        obSqlAlias = GenerateSemanticViewQuery(obView, {"REGION_NAME", "a0"}, obMetadata, null, null,
+            {[Name = "NET_REVENUE", Order = Order.Ascending]}, [a0 = "NET_REVENUE"]),
+
+        // Sort key with a "t0." table prefix Power BI adds -> resolved via StripTablePrefix
+        obSqlPrefixed = GenerateSemanticViewQuery(obView, {"REGION_NAME"}, obMetadata, null, null,
+            {[Name = "t0.REGION_NAME", Order = Order.Ascending]}),
+
+        // Sort descending on the second projected column
+        obSqlDesc = GenerateSemanticViewQuery(obView, {"REGION_NAME", "NET_REVENUE"}, obMetadata, null, null,
+            {[Name = "NET_REVENUE", Order = Order.Descending]}),
+
+        // Sort + limit -> "ORDER BY n DESC LIMIT k" in that order
+        obSqlSortLimit = GenerateSemanticViewQuery(obView, {"REGION_NAME", "NET_REVENUE"}, obMetadata, 10, null,
+            {[Name = "NET_REVENUE", Order = Order.Descending]}),
+
         tests = {
             makeCase("ParseServer_AccountName_Account", "myaccount", pAccount[Account]),
             makeCase("ParseServer_AccountName_UrlFormat", "AccountName", pAccount[UrlFormat]),
@@ -2797,7 +2899,14 @@ shared SnowflakeSemanticViews.RunUnitTests = () as table =>
             makeCase("ResolveDuplicates_Second_ColumnName", "REGION_2", dupResult{1}[ColumnName]),
             makeCase("ResolveDuplicates_Second_SourceColumn", "REGION", dupResult{1}[SourceColumn]),
             makeCase("ResolveDuplicates_Third_ColumnName", "REGION_3", dupResult{2}[ColumnName]),
-            makeCase("ResolveDuplicates_Unique_ColumnName", "CUSTOMER_NAME", dupResult{3}[ColumnName])
+            makeCase("ResolveDuplicates_Unique_ColumnName", "CUSTOMER_NAME", dupResult{3}[ColumnName]),
+
+            makeCase("OrderBy_ProjectedDimension_UsesOrdinal", true, Text.Contains(obSqlProjected, "ORDER BY 1 ASC")),
+            makeCase("OrderBy_UnprojectedFilteredDimension_Dropped", false, Text.Contains(obSqlDroppedFilter, "ORDER BY")),
+            makeCase("OrderBy_MetricViaAliasMap_UsesOrdinal", true, Text.Contains(obSqlAlias, "ORDER BY 2 ASC")),
+            makeCase("OrderBy_TablePrefixedName_ResolvedViaStrip", true, Text.Contains(obSqlPrefixed, "ORDER BY 1 ASC")),
+            makeCase("OrderBy_SecondColumn_Descending", true, Text.Contains(obSqlDesc, "ORDER BY 2 DESC")),
+            makeCase("OrderBy_SortThenLimit_CorrectOrder", true, Text.Contains(obSqlSortLimit, "ORDER BY 2 DESC LIMIT 10"))
         }
     in
         Table.FromRecords(tests, {"TestName", "Expected", "Actual", "Pass"});
@@ -2808,7 +2917,7 @@ shared SnowflakeSemanticViews.RunUnitTests = () as table =>
 SnowflakeSemanticViews.Publish = [
     Beta = true,
     Category = "Database",
-        ButtonText = {"Snowflake Semantic Views", "Connect to Snowflake Semantic Views. Authored By Alex Ross, Principal Solution Engineer at Snowflake. V3.3.0"},
+        ButtonText = {"Snowflake Semantic Views", "Connect to Snowflake Semantic Views. Authored By Alex Ross, Principal Solution Engineer at Snowflake. V3.3.1"},
     LearnMoreUrl = "https://docs.snowflake.com/en/user-guide/views-semantic",
     SupportsDirectQuery = true,
     SourceImage = SnowflakeSemanticViews.Icons,
@@ -3062,7 +3171,7 @@ BuildAdbcConnectionString = (context as record) as record =>
         // Server-side query timeout is controlled via STATEMENT_TIMEOUT_IN_SECONDS in pre-SQL
         // Application name for Snowflake tracking
         // Must start with "[ADBC]" or driver prepends unwanted text
-        appName = "[ADBC] SnowflakeSemanticViews v3.3",
+        appName = "[ADBC] SnowflakeSemanticViews v3.3.1",
 
         // Base connection string options
         baseConnectionString = [

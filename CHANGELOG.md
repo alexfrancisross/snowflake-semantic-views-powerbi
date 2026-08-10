@@ -2,6 +2,27 @@
 
 All notable changes to the Snowflake Semantic Views Power BI Connector.
 
+## [3.3.1] - 2026-08-10
+
+### Fixed
+
+- **Issue #7 - "Error fetching data when filter with single value selected"**:
+  Snowflake rejects `ORDER BY` over a semantic-view dimension that isn't in the
+  SELECT/GROUP BY list (`002024 (42601): ... is not a valid order by
+  expression`). When a dimension filter is narrowed to a single value, Power
+  BI's engine drops that column from the projection (it's provably constant)
+  but keeps the sort spec, orphaning the `ORDER BY` term - two or more
+  selected values kept the column projected, so the bug only showed with a
+  single-value filter. `BuildOrderByClause`
+  (`connector/src/SnowflakeSemanticViews.pq`) now resolves every sort key to
+  its 1-based ordinal position in the actual SELECT list (matching the
+  existing `GROUP BY` convention) instead of emitting a bare quoted
+  identifier, trying the raw name, a `StripTablePrefix`'d name, and a
+  reverse `aliasMap` lookup (for sorting by a metric's source name when the
+  projection carries a Power BI alias like `a0`) in turn. A sort key that
+  resolves to nothing is dropped (with a `BuildOrderByClause/DroppedSortKey`
+  diagnostic trace) rather than emitted as an invalid `ORDER BY` term.
+
 ## [3.3.0] - 2026-07-07
 
 ### Added
