@@ -1,11 +1,11 @@
 // SnowflakeSemanticViews Power BI Connector
-// Version 3.3.1
+// Version 3.3.2
 //
 // Connects to Snowflake Semantic Views with full DirectQuery support.
 // Supports PAT, KeyPair, and Microsoft Account (OAuth) authentication.
 // Uses ADBC (Arrow Database Connectivity) for query execution.
 
-[Version = "3.3.1"]
+[Version = "3.3.2"]
 section SnowflakeSemanticViews;
 
 // =============================================================================
@@ -1556,9 +1556,34 @@ SnowflakeSemanticViewsImpl = (
 MapSnowflakeType = (snowflakeType as text) as type =>
     let
         upperType = Text.Upper(Text.Trim(snowflakeType)),
+        isNumericFamily = Text.StartsWith(upperType, "NUMBER") or Text.StartsWith(upperType, "DECIMAL") or Text.StartsWith(upperType, "NUMERIC"),
+        // NUMBER/DECIMAL/NUMERIC with scale 0 (e.g. "NUMBER(4,0)", or a bare "NUMBER" which
+        // defaults to NUMBER(38,0) in Snowflake) are true integers - map to Int64.Type so the
+        // declared M type matches the integer Arrow value ADBC returns. Non-zero scale is a
+        // genuine decimal - keep Decimal.Type. Mismatching these caused DISP_E_TYPEMISMATCH
+        // errors in Power BI for narrow DISTINCT/TopN queries over integer dimensions.
+        numericScale =
+            if not isNumericFamily then
+                null
+            else
+                let
+                    openParen = Text.PositionOf(upperType, "("),
+                    closeParen = Text.PositionOf(upperType, ")")
+                in
+                    if openParen = -1 or closeParen = -1 then
+                        0
+                    else
+                        let
+                            inside = Text.Range(upperType, openParen + 1, closeParen - openParen - 1),
+                            parts = Text.Split(inside, ","),
+                            scaleText = if List.Count(parts) >= 2 then Text.Trim(parts{1}) else "0"
+                        in
+                            try Number.From(scaleText) otherwise 0,
         m_type =
             // Numeric types
-            if Text.StartsWith(upperType, "NUMBER") or Text.StartsWith(upperType, "DECIMAL") or Text.StartsWith(upperType, "NUMERIC") then
+            if isNumericFamily and numericScale = 0 then
+                Int64.Type
+            else if isNumericFamily then
                 Decimal.Type
             else if Text.StartsWith(upperType, "BIGINT") then
                 Int64.Type  // Check BIGINT before INT
@@ -1747,8 +1772,20 @@ ParseAggregateRecord = (agg as record, allMetricNames as list) as record =>
             Record.Field(StatisticalFunctionMapping, funcName)
         else null,
 
-        // Detect COUNTROWS pattern: Table.RowCount function
-        isRowCount = (aggFunction = Table.RowCount) or (funcName = "Table.RowCount")
+        // Detect COUNTROWS pattern: Table.RowCount function.
+        // Power Query's DirectQuery grouping negotiation doesn't always hand us the bare
+        // Table.RowCount reference - for capability-negotiated folds (our declared
+        // {"Table.RowCount", null} capability) it wraps it as a lambda, e.g.
+        // "(t) => Table.RowCount(t)". Neither the reference check nor Value.Metadata catches
+        // that wrapper, so probe: call the function against a zero-column, 3-row table. Only
+        // a function that ignores columns entirely (i.e. actually counts rows) can succeed on
+        // that table at all - any column-referencing aggregate (SUM/AVERAGE/etc.) errors out,
+        // which try/otherwise turns into null, so this can't misidentify a real aggregate.
+        rowCountProbeTable = #table({}, {{}, {}, {}}),
+        probeResult = if aggFunction is function then try aggFunction(rowCountProbeTable) otherwise null else null,
+        isRowCountByProbe = probeResult = 3,
+
+        isRowCount = (aggFunction = Table.RowCount) or (funcName = "Table.RowCount") or isRowCountByProbe
     in
         [
             Name = aggName,
@@ -1884,6 +1921,8 @@ BuildMinimalTableType = (metadata as list) as type =>
                         type nullable datetimezone  // TIMESTAMP_TZ only
                     else if mappedType = type number then
                         type nullable number
+                    else if mappedType = Int64.Type then
+                        type nullable Int64.Type
                     else if mappedType = type text then
                         type nullable text
                     else if mappedType = type logical then
@@ -2227,7 +2266,10 @@ ResolveColumnAliases = (colName as text, metadataByName as record, optional alia
 // BuildSelectExpression - Build SQL SELECT expression for a single column
 //
 // Generates the appropriate SQL expression based on column kind and aggregation type:
-// - COUNTROWS → COUNT(*)
+// - COUNTROWS → COUNT("dimensionOrFactColumn") - Snowflake Semantic Views reject bare
+//   COUNT(*)/AGG(COUNT(*)) as an invalid metric expression; the documented ad-hoc-metric
+//   pattern is COUNT() over an existing dimension/fact column instead (any non-null column
+//   works, since it's just counting rows within the GROUP BY partition)
 // - DISTINCTCOUNT → COUNT(DISTINCT "column")
 // - Statistical → STDDEV_SAMP/VAR_SAMP/MEDIAN("column")
 // - METRIC → AGG("column")
@@ -2235,10 +2277,11 @@ ResolveColumnAliases = (colName as text, metadataByName as record, optional alia
 //
 // Parameters:
 //   col - Column metadata record with ColumnName, ColumnKind, aggregation flags
+//   rowCountColumn - optional dimension/fact column name to wrap in COUNT() for COUNTROWS
 //
 // Returns: SQL expression string with AS alias clause
 //
-BuildSelectExpression = (col as record) as text =>
+BuildSelectExpression = (col as record, optional rowCountColumn as nullable text) as text =>
     let
         hasAlias = Record.HasFields(col, "OutputAlias"),
         outputName = if hasAlias then col[OutputAlias] else col[ColumnName],
@@ -2249,8 +2292,11 @@ BuildSelectExpression = (col as record) as text =>
         // Use SourceColumn for SQL (original name), fall back to ColumnName for non-duplicate columns
         sourceCol = Record.FieldOrDefault(col, "SourceColumn", col[ColumnName]),
         sourceExpr = if isRowCount then
-            // COUNTROWS: COUNT(*) - no source column needed
-            "COUNT(*)"
+            // COUNTROWS: COUNT(dimensionOrFactColumn) - see comment above BuildSelectExpression
+            if rowCountColumn <> null then
+                "COUNT(" & EscapeIdentifier(rowCountColumn) & ")"
+            else
+                "COUNT(*)"
         else if isDistinctCount then
             // DISTINCTCOUNT: COUNT(DISTINCT sourceColumn)
             "COUNT(DISTINCT " & EscapeIdentifier(sourceCol) & ")"
@@ -2478,8 +2524,18 @@ GenerateSemanticViewQuery = (qualifiedName as text, selectedColumns as list, met
         metrics = List.Select(filteredMetadata, each [ColumnKind] = KIND_METRIC),
         facts = List.Select(filteredMetadata, each [ColumnKind] = KIND_FACT),
 
+        // Pick a dimension/fact column to wrap in COUNT() for COUNTROWS aggregates - Snowflake
+        // Semantic Views reject bare COUNT(*), so any non-null grouped column stands in for it
+        rowCountColumn =
+            if not List.IsEmpty(dimensions) then
+                Record.FieldOrDefault(dimensions{0}, "SourceColumn", dimensions{0}[ColumnName])
+            else if not List.IsEmpty(facts) then
+                Record.FieldOrDefault(facts{0}, "SourceColumn", facts{0}[ColumnName])
+            else
+                null,
+
         // Build SELECT expressions
-        selectColExpressions = List.Transform(filteredMetadata, each BuildSelectExpression(_)),
+        selectColExpressions = List.Transform(filteredMetadata, each BuildSelectExpression(_, rowCountColumn)),
         computedColExpressions = if computedColumns <> null and not List.IsEmpty(computedColumns) then
             List.Transform(computedColumns, each BuildComputedColumnExpression(_))
         else {},
@@ -2859,6 +2915,41 @@ shared SnowflakeSemanticViews.RunUnitTests = () as table =>
         obSqlSortLimit = GenerateSemanticViewQuery(obView, {"REGION_NAME", "NET_REVENUE"}, obMetadata, 10, null,
             {[Name = "NET_REVENUE", Order = Order.Descending]}),
 
+        // --- MapSnowflakeType: zero-scale NUMBER/DECIMAL/NUMERIC must map to Int64.Type, not
+        // Decimal.Type, so integer dimensions (e.g. ORDER_YEAR NUMBER(4,0)) match the integer
+        // Arrow value ADBC returns. A Double-declared integer column caused DISP_E_TYPEMISMATCH
+        // in Power BI for DISTINCT/TopN queries over the raw dimension value.
+        mtOrderYear = MapSnowflakeType("NUMBER(4,0)"),
+        mtDecimal = MapSnowflakeType("NUMBER(10,2)"),
+        mtBareNumber = MapSnowflakeType("NUMBER"),
+        mtDecimal38_0 = MapSnowflakeType("DECIMAL(38,0)"),
+
+        // --- BuildMinimalTableType: the Int64.Type branch must be wired up, or an integer
+        // dimension falls through to "type nullable any" instead of "type nullable Int64.Type"
+        tmMetadata = {[ColumnName = "ORDER_YEAR", ColumnType = "NUMBER(4,0)", ColumnKind = KIND_DIMENSION]},
+        tmType = BuildMinimalTableType(tmMetadata),
+        tmOrderYearType = Type.RecordFields(Type.TableRow(tmType))[ORDER_YEAR][Type],
+
+        // --- ParseAggregateRecord: Power BI's Basic-filtering list-of-items query folds
+        // COUNTROWS via Table.Group's own capability negotiation, which hands OnGroup a
+        // lambda wrapper - e.g. "(t) => Table.RowCount(t)" - rather than the bare
+        // Table.RowCount reference. Confirmed from a live mashup trace
+        // (SqlExpressionTranslator/Translate) showing exactly this shape. Undetected, this
+        // fell through to the position-based metric fallback and wrapped an unrelated metric
+        // in AGG() against the grouped dimension, tripping Snowflake's semantic-view
+        // granularity check with an unrelated "higher level of granularity" error.
+        parWrappedRowCount = ParseAggregateRecord([Name = "a0", Function = (t) => Table.RowCount(t)], {"NET_REVENUE", "CUSTOMER_COUNT"}),
+        parBareRowCount = ParseAggregateRecord([Name = "a0", Function = Table.RowCount], {"NET_REVENUE", "CUSTOMER_COUNT"}),
+        parRealAggregateNotMisdetected = ParseAggregateRecord([Name = "a0", Column = "NET_REVENUE", Function = (t) => List.Sum(t[NET_REVENUE])], {"NET_REVENUE", "CUSTOMER_COUNT"}),
+
+        // --- GenerateSemanticViewQuery: COUNTROWS must render as COUNT("dimension"), not
+        // COUNT(*) - Snowflake Semantic Views reject bare COUNT(*)/AGG(COUNT(*)) as an invalid
+        // metric expression (confirmed live). Live-verified: COUNT("ORDER_YEAR") over this
+        // semantic view returns correct per-year row counts.
+        rcMetadata = {[ColumnName = "ORDER_YEAR", ColumnType = "NUMBER(4,0)", ColumnKind = KIND_DIMENSION]},
+        rcRowCountMap = [a0 = true],
+        rcSql = GenerateSemanticViewQuery(obView, {"ORDER_YEAR", "a0"}, rcMetadata, 1000001, null, null, null, null, null, null, null, rcRowCountMap),
+
         tests = {
             makeCase("ParseServer_AccountName_Account", "myaccount", pAccount[Account]),
             makeCase("ParseServer_AccountName_UrlFormat", "AccountName", pAccount[UrlFormat]),
@@ -2906,7 +2997,21 @@ shared SnowflakeSemanticViews.RunUnitTests = () as table =>
             makeCase("OrderBy_MetricViaAliasMap_UsesOrdinal", true, Text.Contains(obSqlAlias, "ORDER BY 2 ASC")),
             makeCase("OrderBy_TablePrefixedName_ResolvedViaStrip", true, Text.Contains(obSqlPrefixed, "ORDER BY 1 ASC")),
             makeCase("OrderBy_SecondColumn_Descending", true, Text.Contains(obSqlDesc, "ORDER BY 2 DESC")),
-            makeCase("OrderBy_SortThenLimit_CorrectOrder", true, Text.Contains(obSqlSortLimit, "ORDER BY 2 DESC LIMIT 10"))
+            makeCase("OrderBy_SortThenLimit_CorrectOrder", true, Text.Contains(obSqlSortLimit, "ORDER BY 2 DESC LIMIT 10")),
+
+            makeCase("MapType_IntegerScale_NUMBER4_0_IsInt64", true, mtOrderYear = Int64.Type),
+            makeCase("MapType_DecimalScale_NUMBER10_2_IsDecimal", true, mtDecimal = Decimal.Type),
+            makeCase("MapType_BareNUMBER_DefaultsToInt64", true, mtBareNumber = Int64.Type),
+            makeCase("MapType_DECIMAL38_0_IsInt64", true, mtDecimal38_0 = Int64.Type),
+            makeCase("BuildMinimalTableType_IntegerDimension_UsesInt64", true, tmOrderYearType = type nullable Int64.Type),
+
+            makeCase("ParseAggregateRecord_WrappedRowCount_IsRowCountDetected", true, parWrappedRowCount[IsRowCount]),
+            makeCase("ParseAggregateRecord_WrappedRowCount_ColumnIsNull", null, parWrappedRowCount[Column]),
+            makeCase("ParseAggregateRecord_BareRowCount_IsRowCountDetected", true, parBareRowCount[IsRowCount]),
+            makeCase("ParseAggregateRecord_RealAggregate_NotMisdetectedAsRowCount", false, parRealAggregateNotMisdetected[IsRowCount]),
+
+            makeCase("GenerateSemanticViewQuery_RowCount_UsesCountDimension_NotCountStar", true, Text.Contains(rcSql, "COUNT(""ORDER_YEAR"")")),
+            makeCase("GenerateSemanticViewQuery_RowCount_DoesNotEmitCountStar", false, Text.Contains(rcSql, "COUNT(*)"))
         }
     in
         Table.FromRecords(tests, {"TestName", "Expected", "Actual", "Pass"});
@@ -2917,7 +3022,7 @@ shared SnowflakeSemanticViews.RunUnitTests = () as table =>
 SnowflakeSemanticViews.Publish = [
     Beta = true,
     Category = "Database",
-        ButtonText = {"Snowflake Semantic Views", "Connect to Snowflake Semantic Views. Authored By Alex Ross, Principal Solution Engineer at Snowflake. V3.3.1"},
+        ButtonText = {"Snowflake Semantic Views", "Connect to Snowflake Semantic Views. Authored By Alex Ross, Principal Solution Engineer at Snowflake. V3.3.2"},
     LearnMoreUrl = "https://docs.snowflake.com/en/user-guide/views-semantic",
     SupportsDirectQuery = true,
     SourceImage = SnowflakeSemanticViews.Icons,
@@ -3171,7 +3276,7 @@ BuildAdbcConnectionString = (context as record) as record =>
         // Server-side query timeout is controlled via STATEMENT_TIMEOUT_IN_SECONDS in pre-SQL
         // Application name for Snowflake tracking
         // Must start with "[ADBC]" or driver prepends unwanted text
-        appName = "[ADBC] SnowflakeSemanticViews v3.3.1",
+        appName = "[ADBC] SnowflakeSemanticViews v3.3.2",
 
         // Base connection string options
         baseConnectionString = [

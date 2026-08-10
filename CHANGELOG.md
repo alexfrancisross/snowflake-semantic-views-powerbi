@@ -2,6 +2,45 @@
 
 All notable changes to the Snowflake Semantic Views Power BI Connector.
 
+## [3.3.2] - 2026-08-10
+
+### Fixed
+
+- **"Basic filtering: Unable to obtain the list of items"**: this turned out
+  to be two stacked bugs.
+
+  1. `ParseAggregateRecord`'s `IsRowCount` detection
+     (`connector/src/SnowflakeSemanticViews.pq`) only matched a bare
+     `Table.RowCount` reference, but Power Query's DirectQuery fold
+     negotiation for our declared `{"Table.RowCount", null}` capability
+     hands `OnGroup` a lambda wrapper instead - `(t) => Table.RowCount(t)` -
+     confirmed via a live mashup trace's `SqlExpressionTranslator/Translate`
+     entry. Undetected, this fell through to the position-based metric
+     fallback, wrapping an unrelated metric in `AGG()` against the grouped
+     dimension and tripping Snowflake's semantic-view granularity check
+     (`010956 (22023): ... higher level of granularity ...`) for two
+     unrelated columns. Fixed by adding a probe-based detection: call the
+     candidate function against a zero-column, 3-row table and check the
+     result is `3` - only a true row-counter ignores columns entirely and
+     succeeds; any column-referencing aggregate (`SUM`/`AVERAGE`/etc.)
+     errors out and is safely rejected.
+
+  2. Once `IsRowCount` correctly detected, the connector emitted literal
+     `COUNT(*)` for the aggregate - but Snowflake Semantic Views reject bare
+     `COUNT(*)` (and `AGG(COUNT(*))`, `AGG(*)`, `AGG(1)`) as an invalid
+     metric expression (`010274 (42601): ... Invalid metric expression`).
+     Per Snowflake's documented ad-hoc-metric syntax, the correct pattern is
+     `COUNT(<dimension_or_fact_column>)` with no `AGG()` wrapper. Fixed by
+     threading a `rowCountColumn` (the first available grouped
+     dimension/fact source column) from `GenerateSemanticViewQuery` into
+     `BuildSelectExpression`, so `COUNTROWS` now renders as e.g.
+     `COUNT("ORDER_YEAR")` instead of `COUNT(*)`.
+
+  Both fixes are covered by new `RunUnitTests()` regression cases and were
+  confirmed live: `snow sql` against the exact generated SQL returned
+  correct per-group row counts, and basic filtering now works end-to-end in
+  Power BI Desktop.
+
 ## [3.3.1] - 2026-08-10
 
 ### Fixed

@@ -58,10 +58,21 @@ try {
 Write-Host "Built $OutputFile ($($filesToZip.Count) files)" -ForegroundColor Green
 
 if ($Deploy) {
-    $destDir = Join-Path $env:USERPROFILE "Documents\Power BI Desktop\Custom Connectors"
+    # Use the shell's resolved Documents folder, not $env:USERPROFILE\Documents literally -
+    # when Documents is redirected (e.g. by OneDrive Known Folder Move), Power BI Desktop
+    # loads connectors from the redirected path, and a literal-path copy silently misses it.
+    $destDir = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "Power BI Desktop\Custom Connectors"
     if (-not (Test-Path $destDir)) {
         New-Item -ItemType Directory -Path $destDir -Force | Out-Null
     }
     Copy-Item $OutputFile $destDir -Force
     Write-Host "Deployed to $destDir" -ForegroundColor Green
+
+    # Also cover the literal (non-redirected) path if it differs and already exists, so a
+    # stale copy there doesn't shadow the fresh build if Power BI ever falls back to it.
+    $literalDir = Join-Path $env:USERPROFILE "Documents\Power BI Desktop\Custom Connectors"
+    if ($literalDir -ne $destDir -and (Test-Path $literalDir)) {
+        Copy-Item $OutputFile $literalDir -Force
+        Write-Host "Also deployed to $literalDir (literal Documents path)" -ForegroundColor Green
+    }
 }
