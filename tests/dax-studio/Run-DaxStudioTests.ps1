@@ -38,6 +38,11 @@ if (-not $queryFiles) {
 
 $summary = @()
 
+# Queries known to fail against a live DirectQuery session for reasons outside
+# the connector's control (see README.md "Known Limitations") - these are run
+# and reported, but a failure here doesn't fail the suite.
+$KnownLimitations = @("11-large-limit")
+
 # dscmd.exe -s only matches an open Desktop instance by the .pbip's bare
 # filename, not its full path - and -d must be omitted so dscmd resolves
 # the AS database itself (the Desktop-visible name isn't a valid catalog name).
@@ -45,6 +50,7 @@ $PbipName = Split-Path $PbipPath -Leaf
 
 foreach ($queryFile in $queryFiles) {
     $outputFile = Join-Path $OutputDir "$($queryFile.BaseName).csv"
+    $isKnownLimitation = $KnownLimitations -contains $queryFile.BaseName
     Write-Host "Running $($queryFile.Name)..." -ForegroundColor Cyan
 
     & $DscmdPath csv $outputFile -s $PbipName -f $queryFile.FullName 2>&1 | Tee-Object -Variable dscmdOutput | Out-Null
@@ -52,14 +58,18 @@ foreach ($queryFile in $queryFiles) {
 
     $passed = ($exitCode -eq 0) -and (Test-Path $outputFile)
     $summary += [PSCustomObject]@{
-        Query    = $queryFile.Name
-        Passed   = $passed
-        ExitCode = $exitCode
-        Output   = $outputFile
+        Query             = $queryFile.Name
+        Passed            = $passed
+        ExitCode          = $exitCode
+        Output            = $outputFile
+        KnownLimitation   = $isKnownLimitation
     }
 
     if ($passed) {
         Write-Host "  OK -> $outputFile" -ForegroundColor Green
+    } elseif ($isKnownLimitation) {
+        Write-Host "  FAILED (exit code $exitCode) - known limitation, not counted against the suite" -ForegroundColor Yellow
+        $dscmdOutput | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
     } else {
         Write-Host "  FAILED (exit code $exitCode)" -ForegroundColor Red
         $dscmdOutput | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
@@ -71,9 +81,10 @@ New-Item -ItemType Directory -Path $resultsDir -Force | Out-Null
 $summaryPath = Join-Path $resultsDir "summary.json"
 $summary | ConvertTo-Json | Out-File -FilePath $summaryPath -Encoding utf8
 
-$failedCount = @($summary | Where-Object { -not $_.Passed }).Count
+$failedCount = @($summary | Where-Object { -not $_.Passed -and -not $_.KnownLimitation }).Count
+$knownLimitationFailedCount = @($summary | Where-Object { -not $_.Passed -and $_.KnownLimitation }).Count
 Write-Host ""
-Write-Host "$($summary.Count - $failedCount)/$($summary.Count) queries passed. Summary written to $summaryPath" -ForegroundColor $(if ($failedCount -eq 0) { "Green" } else { "Red" })
+Write-Host "$($summary.Count - $failedCount - $knownLimitationFailedCount)/$($summary.Count - $knownLimitationFailedCount) queries passed ($knownLimitationFailedCount known limitation(s) excluded). Summary written to $summaryPath" -ForegroundColor $(if ($failedCount -eq 0) { "Green" } else { "Red" })
 
 if ($failedCount -gt 0) {
     exit 1

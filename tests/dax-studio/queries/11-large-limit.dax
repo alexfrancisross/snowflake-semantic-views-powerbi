@@ -1,4 +1,10 @@
 // Larger LIMIT/TopN over a higher-cardinality dimension.
+// KNOWN LIMITATION (see README.md "Known Limitations"): TOPN over a grouped
+// SUMMARIZECOLUMNS result does not fold in Analysis Services' DirectQuery
+// engine - it pulls the full grouped result locally before sorting/limiting,
+// which can hit AS's 1,000,000-row external-query cap. Kept as a live
+// regression check (Run-DaxStudioTests.ps1 excludes it from the pass/fail
+// gate) so a future fold-negotiation change that fixes this is noticed.
 EVALUATE
 TOPN(
     200,

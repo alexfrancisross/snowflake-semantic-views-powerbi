@@ -10,6 +10,37 @@ All notable changes to the Snowflake Semantic Views Power BI Connector.
   suite against `snowflake-connector-python`, and a DAX Studio end-to-end
   query pack (`tests/dax-studio/`) that exercises real DirectQuery execution
   through a live Power BI Desktop session. See `tests/README.md`.
+- **PQTest folding case for `Table.Group` -> `Table.Sort` -> `Table.FirstN`**
+  (`tests/pqtest/queries/04-folding/Folding-GroupSortFirstN.query.pq`): proves
+  the connector's M layer folds this chain to a single
+  `GROUP BY ... ORDER BY ... LIMIT` Snowflake query (run with
+  `--failOnFoldingFailure`). Added while investigating the known limitation
+  below, to guard against a regression at the connector layer even though the
+  Analysis Services-level limitation is out of the connector's control.
+
+### Known limitations
+
+- **`TOPN` over a grouped `SUMMARIZECOLUMNS` result does not fold in Power BI
+  Desktop DirectQuery**: `tests/dax-studio/queries/11-large-limit.dax`
+  (groups by two dimensions, then `TOPN(200, ...)`) can fail with
+  *"The resultset of a query to external data source has exceeded the
+  maximum allowed size of '1000000' rows"* on high-cardinality groupings.
+  Investigated via live `QUERY_HISTORY` evidence: Snowflake received
+  `SELECT ... GROUP BY 1, 2 LIMIT 1000001` (Analysis Services' own
+  DirectQuery cap-probe pattern) with no `ORDER BY`/`LIMIT 200` folded in -
+  meaning AS decided to materialize the entire grouped result locally and
+  perform the sort/TOPN itself, rather than pushing those steps to the same
+  query as the (successfully folded) `GROUP BY`. Ruled out a connector bug
+  two ways: (1) temporarily declaring the previously-omitted
+  `{"Table.Group", null}` DirectQuery capability produced byte-identical SQL,
+  so the capabilities table isn't gating this decision (`OnGroup` already
+  folds without it); (2) a PQTest probe of the same
+  `Table.Group`/`Table.Sort`/`Table.FirstN` chain, run directly against the
+  connector's M layer with `-foff`, folds correctly and returns exactly 200
+  rows. The gap is in Analysis Services' own DirectQuery fold-negotiation for
+  this query shape, not in the connector. Documented in README.md "Known
+  Limitations"; `Run-DaxStudioTests.ps1` now excludes this query from the
+  pass/fail gate (kept as a live check so a future AS fix would be noticed).
 
 ### Fixed
 

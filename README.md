@@ -291,6 +291,38 @@ From the `tpch_sample_data/` scripts, these views may show preview errors:
 
 These views work correctly in DirectQuery when you select compatible column combinations (e.g., dimensions from one path with their related metrics).
 
+### TOPN Over a Grouped/Aggregated Result Does Not Fold
+
+A DAX query that groups by dimensions (`SUMMARIZECOLUMNS`) and then takes the
+top N rows of that grouped result (`TOPN`) will not fold the sort/limit into
+the SQL sent to Snowflake. Analysis Services' DirectQuery engine pulls back
+the entire grouped result set and performs the sort and TOPN locally, rather
+than pushing a `GROUP BY ... ORDER BY ... LIMIT` in a single query.
+
+This is a limitation of Analysis Services' own DirectQuery fold negotiation
+for this query shape (confirmed by comparing the SQL Snowflake actually
+received, via `QUERY_HISTORY`, before and after experimentally declaring the
+`Table.Group` DirectQuery capability - the generated SQL was byte-identical
+either way, and the connector's `Table.Sort`/`Table.FirstN` handlers are
+never invoked for this shape at all). It is not specific to this connector -
+the same behavior is documented for other DirectQuery sources when TOPN
+follows a grouping step.
+
+**Symptom:** on a high-cardinality grouping (e.g. grouping by two dimensions
+with many distinct combinations), this can hit Analysis Services' 1,000,000-row
+external-query cap:
+
+> The resultset of a query to external data source has exceeded the maximum
+> allowed size of '1000000' rows.
+
+**The workaround:**
+
+- Filter the grouped dimensions down (e.g. a date range) before applying
+  TOPN, so the ungrouped-then-locally-sorted result stays under the cap.
+- Where possible, sort/limit on a pre-aggregated table or view (one row per
+  group already) instead of grouping and limiting in the same query - this
+  folds correctly, since no `Table.Group` step is involved.
+
 ### Power BI Service and Gateway Configuration
 
 Custom connectors require a specific workflow to work with [Power BI Service and the on-premises data gateway](https://learn.microsoft.com/en-us/power-bi/connect-data/service-gateway-onprem). You cannot create standalone gateway connections—instead, you must publish from Power BI Desktop first.
