@@ -1,0 +1,1 @@
+#table( type table [REGION_NAME = text, RowCount = number] , {{"AFRICA", 1} , {"AMERICA", 1} , {"ASIA", 1} , {"EUROPE", 1} , {"MIDDLE EAST", 1} } ) 

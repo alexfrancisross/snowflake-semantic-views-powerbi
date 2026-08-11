@@ -1,0 +1,1 @@
+#table( type table [REGION_NAME = text, NATION_NAME = text, ORDER_COUNT = number] , {{"EUROPE", "FRANCE", 61600} , {"EUROPE", "GERMANY", 59724} , {"EUROPE", "ROMANIA", 61012} , {"EUROPE", "RUSSIA", 61495} , {"EUROPE", "UNITED KINGDOM", 59455} } ) 

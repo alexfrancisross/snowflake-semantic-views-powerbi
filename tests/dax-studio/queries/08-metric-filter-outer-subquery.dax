@@ -1,0 +1,16 @@
+// Metric filter (CALCULATETABLE on an aggregate measure) - mirrors the
+// connector's outer-subquery wrap, since Snowflake semantic views disallow
+// metrics directly in WHERE.
+DEFINE
+    MEASURE SV_REGIONAL_SALES[Total Revenue] = SUM(SV_REGIONAL_SALES[TOTAL_REVENUE])
+EVALUATE
+CALCULATETABLE(
+    SUMMARIZECOLUMNS(
+        SV_REGIONAL_SALES[NATION_NAME],
+        "Total Revenue", [Total Revenue]
+    ),
+    FILTER(
+        SUMMARIZECOLUMNS(SV_REGIONAL_SALES[NATION_NAME], "Total Revenue", [Total Revenue]),
+        [Total Revenue] > 1000000
+    )
+)

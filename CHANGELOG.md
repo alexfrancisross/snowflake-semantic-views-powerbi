@@ -2,6 +2,32 @@
 
 All notable changes to the Snowflake Semantic Views Power BI Connector.
 
+## [Unreleased]
+
+### Added
+
+- **Test suite** (`tests/`): PQTest query pack, a live Python integration
+  suite against `snowflake-connector-python`, and a DAX Studio end-to-end
+  query pack (`tests/dax-studio/`) that exercises real DirectQuery execution
+  through a live Power BI Desktop session. See `tests/README.md`.
+
+### Fixed
+
+- **DAX Studio test runner couldn't attach to a running Desktop session**:
+  `dscmd.exe`'s `-s` server parameter only matches an open Power BI Desktop
+  instance by the `.pbip`'s bare filename, not its full path, and `-d
+  <database>` must be omitted entirely - dscmd resolves the AS catalog
+  itself once it matches the instance; the Desktop-visible friendly name
+  isn't a valid catalog name to pass explicitly. `Run-DaxStudioTests.ps1`
+  was passing the full path plus an explicit database name, so every query
+  failed with "Unable to find a running Power BI Desktop instance...".
+  Fixed by passing `Split-Path $PbipPath -Leaf` to `-s` and dropping
+  `-DatabaseName` from the script.
+- **DAX Studio fixture (`tests/dax-studio/SnowflakeConnectorFixture.*`) was
+  stale**: rebuilt from a manually-verified, live-connected Power BI Desktop
+  project. The real `SV_REGIONAL_SALES` semantic view has grown to 16
+  columns (previously assumed 8); TMDL/report/pbip files updated to match.
+
 ## [3.3.2] - 2026-08-10
 
 ### Fixed

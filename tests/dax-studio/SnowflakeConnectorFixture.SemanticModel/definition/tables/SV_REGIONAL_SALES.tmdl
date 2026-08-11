@@ -1,0 +1,176 @@
+table SV_REGIONAL_SALES
+	lineageTag: 78f2b831-29db-4890-8191-3c71654184df
+
+	column CUSTOMER_NAME
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: d98a6b58-8dfb-4159-9912-a3b831d352b3
+		summarizeBy: none
+		sourceColumn: CUSTOMER_NAME
+
+		annotation SummarizationSetBy = Automatic
+
+	column MARKET_SEGMENT
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: 48775ade-af88-4b51-8e98-3e86ce6141df
+		summarizeBy: none
+		sourceColumn: MARKET_SEGMENT
+
+		annotation SummarizationSetBy = Automatic
+
+	column NATION_NAME
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: a4b01133-95c9-4a0b-80e1-65da1500029f
+		summarizeBy: none
+		sourceColumn: NATION_NAME
+
+		annotation SummarizationSetBy = Automatic
+
+	column CLERK
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: e7259394-bb25-43ed-b211-7343b2a57c7a
+		summarizeBy: none
+		sourceColumn: CLERK
+
+		annotation SummarizationSetBy = Automatic
+
+	column ORDER_DATE
+		dataType: dateTime
+		formatString: Long Date
+		sourceProviderType: date
+		lineageTag: 2501ffd2-b40d-46b4-8ca9-9f52d54ff6e9
+		summarizeBy: none
+		sourceColumn: ORDER_DATE
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column ORDER_PRIORITY
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: e4c3eb9c-d84d-47fc-ba60-5873a97a1b75
+		summarizeBy: none
+		sourceColumn: ORDER_PRIORITY
+
+		annotation SummarizationSetBy = Automatic
+
+	column ORDER_STATUS
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: c9a9144c-5bba-482e-a428-1e31e6b04fe3
+		summarizeBy: none
+		sourceColumn: ORDER_STATUS
+
+		annotation SummarizationSetBy = Automatic
+
+	column REGION_NAME
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: 7584fff9-831f-4a49-9e60-e2ef46329763
+		summarizeBy: none
+		sourceColumn: REGION_NAME
+
+		annotation SummarizationSetBy = Automatic
+
+	column AVG_ORDER_VALUE
+		dataType: double
+		sourceProviderType: double
+		lineageTag: 45280092-4a4d-4754-aab8-f99774caeb0e
+		summarizeBy: sum
+		sourceColumn: AVG_ORDER_VALUE
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column FULFILLED_ORDER_RATE
+		dataType: double
+		sourceProviderType: double
+		lineageTag: 27c48285-0cdd-4b87-a28a-aaad67b61353
+		summarizeBy: sum
+		sourceColumn: FULFILLED_ORDER_RATE
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column HIGH_PRIORITY_ORDER_COUNT
+		dataType: double
+		sourceProviderType: double
+		lineageTag: ab188f4d-f59d-49fc-8de9-19a04edf4177
+		summarizeBy: sum
+		sourceColumn: HIGH_PRIORITY_ORDER_COUNT
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column ORDER_COUNT
+		dataType: double
+		sourceProviderType: double
+		lineageTag: 77e44d00-2b6e-4946-abf8-a16e8fabfd5e
+		summarizeBy: sum
+		sourceColumn: ORDER_COUNT
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column TOTAL_REVENUE
+		dataType: double
+		sourceProviderType: double
+		lineageTag: 85d40e90-4614-418b-8e3a-bc24973bc769
+		summarizeBy: sum
+		sourceColumn: TOTAL_REVENUE
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column ACCOUNT_BALANCE
+		dataType: string
+		lineageTag: e5c3dfbc-ffa2-45e1-bbb5-3e0cfc529284
+		summarizeBy: none
+		sourceColumn: ACCOUNT_BALANCE
+
+		annotation SummarizationSetBy = Automatic
+
+	column IS_FULFILLED
+		dataType: boolean
+		formatString: """TRUE"";""TRUE"";""FALSE"""
+		sourceProviderType: bit
+		lineageTag: 4d246211-050f-4ba1-bb8c-f8a6c064facf
+		summarizeBy: none
+		sourceColumn: IS_FULFILLED
+
+		annotation SummarizationSetBy = Automatic
+
+	column IS_HIGH_VALUE_ORDER
+		dataType: boolean
+		formatString: """TRUE"";""TRUE"";""FALSE"""
+		sourceProviderType: bit
+		lineageTag: 7cb33d8e-8f12-4943-ac95-7fc8506e20b2
+		summarizeBy: none
+		sourceColumn: IS_HIGH_VALUE_ORDER
+
+		annotation SummarizationSetBy = Automatic
+
+	partition SV_REGIONAL_SALES = m
+		mode: directQuery
+		source =
+				let
+				    Source = SnowflakeSemanticViews.Contents("cs83279.eu-west-2.aws", "XSMALL", null, null, null, null, null),
+				    TPCH_RICH_DB = Source{[name="TPCH_RICH_DB"]}[Data],
+				    TPCH_RICH_SVS = TPCH_RICH_DB{[name="TPCH_RICH_SVS"]}[Data],
+				    SV_REGIONAL_SALES = TPCH_RICH_SVS{[name="SV_REGIONAL_SALES"]}[Data]
+				in
+				    SV_REGIONAL_SALES
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Table
+

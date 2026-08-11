@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "Report",
+    "displayName": "SnowflakeConnectorFixture"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "78938b1b-298b-4c20-901e-729d20f30065"
+  }
+}

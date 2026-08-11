@@ -1,0 +1,8 @@
+// Blank/NULL handling: filters to a dimension value with no matching rows,
+// confirming the connector returns an empty result set rather than erroring.
+EVALUATE
+SUMMARIZECOLUMNS(
+    SV_REGIONAL_SALES[REGION_NAME],
+    FILTER(ALL(SV_REGIONAL_SALES[REGION_NAME]), SV_REGIONAL_SALES[REGION_NAME] = "NO_SUCH_REGION"),
+    "Total Revenue", SUM(SV_REGIONAL_SALES[TOTAL_REVENUE])
+)

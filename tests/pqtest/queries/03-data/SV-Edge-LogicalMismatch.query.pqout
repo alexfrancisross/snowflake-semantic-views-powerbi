@@ -1,0 +1,1 @@
+#table( type table [CONTINENT_LABEL = text, AVERAGE_BALANCE = number, CUSTOMER_TOTAL = number] , {{"AFRICA", 4501, 29764} , {"AMERICA", 4491.1, 29952} , {"ASIA", 4504.02, 30183} , {"EUROPE", 4493.34, 30197} , {"MIDDLE EAST", 4488.07, 29904} } ) 

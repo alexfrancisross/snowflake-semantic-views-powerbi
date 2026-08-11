@@ -1,0 +1,1 @@
+#table( type table [name = text, ItemKind = text, IsLeaf = logical] , {{"TPCH_RICH_DB", "Database", false} } ) 

@@ -1,0 +1,81 @@
+table SV_DAILY_SALES
+	lineageTag: 0240d022-e6ab-43bf-85fd-07059df2c665
+
+	column MARKET_SEGMENT
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: e789e499-2bc1-47f7-bda8-14f8ff14bd8d
+		summarizeBy: none
+		sourceColumn: MARKET_SEGMENT
+
+		annotation SummarizationSetBy = Automatic
+
+	column REGION_NAME
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: 9d4a950c-f799-4e87-873a-fe1ef6cc309a
+		summarizeBy: none
+		sourceColumn: REGION_NAME
+
+		annotation SummarizationSetBy = Automatic
+
+	column SALE_DATE
+		dataType: dateTime
+		formatString: Long Date
+		sourceProviderType: date
+		lineageTag: fa34e351-51d0-4e40-b8ab-1c73665115c7
+		summarizeBy: none
+		sourceColumn: SALE_DATE
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column AVG_ORDER_VALUE
+		dataType: double
+		sourceProviderType: double
+		lineageTag: 3a7e5d73-85b6-49ed-bc9a-bf27000f9b2c
+		summarizeBy: sum
+		sourceColumn: AVG_ORDER_VALUE
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column ORDER_COUNT
+		dataType: double
+		sourceProviderType: double
+		lineageTag: dff6a084-0334-497a-8617-1fa84bf9026a
+		summarizeBy: sum
+		sourceColumn: ORDER_COUNT
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column TOTAL_REVENUE
+		dataType: double
+		sourceProviderType: double
+		lineageTag: a8cf02a9-161e-419c-8218-747ec39de802
+		summarizeBy: sum
+		sourceColumn: TOTAL_REVENUE
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	partition SV_DAILY_SALES = m
+		mode: directQuery
+		source =
+				let
+				    Source = SnowflakeSemanticViews.Contents("cs83279.eu-west-2.aws", "XSMALL", null, null, null, null, null),
+				    TPCH_RICH_DB = Source{[name="TPCH_RICH_DB"]}[Data],
+				    TPCH_RICH_SVS = TPCH_RICH_DB{[name="TPCH_RICH_SVS"]}[Data],
+				    SV_DAILY_SALES = TPCH_RICH_SVS{[name="SV_DAILY_SALES"]}[Data]
+				in
+				    SV_DAILY_SALES
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Table
+

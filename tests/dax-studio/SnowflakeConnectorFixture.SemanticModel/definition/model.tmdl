@@ -1,0 +1,20 @@
+model Model
+	culture: en-US
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	sourceQueryCulture: en-GB
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation __PBI_TimeIntelligenceEnabled = 1
+
+annotation PBI_QueryOrder = ["SV_REGIONAL_SALES","SV_DAILY_SALES","SV_CUSTOMER_ORDERS"]
+
+annotation PBI_ProTooling = ["DevMode"]
+
+ref table SV_REGIONAL_SALES
+ref table SV_DAILY_SALES
+ref table SV_CUSTOMER_ORDERS
+
+ref cultureInfo en-US
+

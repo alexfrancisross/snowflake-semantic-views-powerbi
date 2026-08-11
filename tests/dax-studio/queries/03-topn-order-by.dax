@@ -1,0 +1,11 @@
+// TopN + ORDER BY: exercises the connector's LIMIT/ORDER BY generation.
+EVALUATE
+TOPN(
+    5,
+    SUMMARIZECOLUMNS(
+        SV_CUSTOMER_ORDERS[CUSTOMER_NAME],
+        "Total Revenue", SUM(SV_CUSTOMER_ORDERS[TOTAL_REVENUE])
+    ),
+    [Total Revenue], DESC
+)
+ORDER BY [Total Revenue] DESC

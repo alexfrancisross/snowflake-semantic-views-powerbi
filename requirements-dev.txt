@@ -1,0 +1,2 @@
+snowflake-connector-python>=3.18.0
+pytest>=8.0.0

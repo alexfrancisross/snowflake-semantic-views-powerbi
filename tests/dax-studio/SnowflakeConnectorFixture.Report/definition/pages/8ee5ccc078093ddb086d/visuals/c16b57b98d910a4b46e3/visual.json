@@ -1,0 +1,122 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.10.0/schema.json",
+  "name": "c16b57b98d910a4b46e3",
+  "position": {
+    "x": 9.5167286245353164,
+    "y": 0,
+    "z": 0,
+    "height": 719.70260223048331,
+    "width": 789.88847583643121,
+    "tabOrder": 0
+  },
+  "visual": {
+    "visualType": "clusteredColumnChart",
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "SV_REGIONAL_SALES"
+                    }
+                  },
+                  "Property": "ORDER_STATUS"
+                }
+              },
+              "queryRef": "SV_REGIONAL_SALES.ORDER_STATUS",
+              "nativeQueryRef": "ORDER_STATUS",
+              "active": true
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "SV_REGIONAL_SALES"
+                        }
+                      },
+                      "Property": "AVG_ORDER_VALUE"
+                    }
+                  },
+                  "Function": 0
+                }
+              },
+              "queryRef": "Sum(SV_REGIONAL_SALES.AVG_ORDER_VALUE)",
+              "nativeQueryRef": "Sum of AVG_ORDER_VALUE"
+            }
+          ]
+        }
+      },
+      "sortDefinition": {
+        "sort": [
+          {
+            "field": {
+              "Aggregation": {
+                "Expression": {
+                  "Column": {
+                    "Expression": {
+                      "SourceRef": {
+                        "Entity": "SV_REGIONAL_SALES"
+                      }
+                    },
+                    "Property": "AVG_ORDER_VALUE"
+                  }
+                },
+                "Function": 0
+              }
+            },
+            "direction": "Descending"
+          }
+        ],
+        "isDefaultSort": true
+      }
+    },
+    "drillFilterOtherVisuals": true
+  },
+  "filterConfig": {
+    "filters": [
+      {
+        "name": "344331c42da476844b8d",
+        "field": {
+          "Aggregation": {
+            "Expression": {
+              "Column": {
+                "Expression": {
+                  "SourceRef": {
+                    "Entity": "SV_REGIONAL_SALES"
+                  }
+                },
+                "Property": "AVG_ORDER_VALUE"
+              }
+            },
+            "Function": 0
+          }
+        },
+        "type": "Advanced"
+      },
+      {
+        "name": "e95e2ee16a62005d9162",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "SV_REGIONAL_SALES"
+              }
+            },
+            "Property": "ORDER_STATUS"
+          }
+        },
+        "type": "Categorical"
+      }
+    ]
+  }
+}

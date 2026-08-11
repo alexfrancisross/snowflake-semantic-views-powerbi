@@ -1,0 +1,6 @@
+// Basic aggregation: one dimension, one metric.
+EVALUATE
+SUMMARIZECOLUMNS(
+    SV_REGIONAL_SALES[REGION_NAME],
+    "Total Revenue", SUM(SV_REGIONAL_SALES[TOTAL_REVENUE])
+)

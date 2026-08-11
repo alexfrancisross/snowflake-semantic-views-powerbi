@@ -1,0 +1,1 @@
+[ HasError = true, Reason = "DataSource.Error", Message = "Database 'NO_SUCH_DATABASE_12345' not found - it may have been dropped or renamed, or your role may not have access" ] 

@@ -1,0 +1,1 @@
+[ HasError = true, Reason = "DataSource.Error", Message = "Standard tables are not supported. Use Power BI's native Snowflake connector for: ORDERS" ] 

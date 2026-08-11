@@ -1,0 +1,8 @@
+// Multi-dimension GROUP BY across two dimensions with a metric.
+EVALUATE
+SUMMARIZECOLUMNS(
+    SV_CUSTOMER_ORDERS[REGION_NAME],
+    SV_CUSTOMER_ORDERS[MARKET_SEGMENT],
+    "Total Revenue", SUM(SV_CUSTOMER_ORDERS[TOTAL_REVENUE]),
+    "Order Count", SUM(SV_CUSTOMER_ORDERS[ORDER_COUNT])
+)

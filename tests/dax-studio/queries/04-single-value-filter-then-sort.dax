@@ -1,0 +1,12 @@
+// Issue #7 regression: ORDER BY on a dimension after a single-value filter.
+// SV_DAILY_SALES has multiple rows per REGION_NAME (one per SALE_DATE), so
+// filtering to one region does not collapse the result to a single row -
+// the sort on REGION_NAME must still resolve to the right ordinal column.
+EVALUATE
+SUMMARIZECOLUMNS(
+    SV_DAILY_SALES[REGION_NAME],
+    SV_DAILY_SALES[SALE_DATE],
+    FILTER(ALL(SV_DAILY_SALES[REGION_NAME]), SV_DAILY_SALES[REGION_NAME] = "EUROPE"),
+    "Total Revenue", SUM(SV_DAILY_SALES[TOTAL_REVENUE])
+)
+ORDER BY SV_DAILY_SALES[REGION_NAME], SV_DAILY_SALES[SALE_DATE]

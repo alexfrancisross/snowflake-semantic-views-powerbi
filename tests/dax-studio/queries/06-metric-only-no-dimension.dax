@@ -1,0 +1,6 @@
+// Metric-only aggregation with no dimension projected.
+EVALUATE
+ROW(
+    "Total Revenue", SUM(SV_CUSTOMER_ORDERS[TOTAL_REVENUE]),
+    "Order Count", SUM(SV_CUSTOMER_ORDERS[ORDER_COUNT])
+)

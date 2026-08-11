@@ -1,0 +1,1 @@
+#table( type table [#"Market Segment" = text, #"Total Balance" = number] , {{"AUTOMOBILE", 133866847.09} , {"BUILDING", 135888621.94} , {"FURNITURE", 134259177.87} , {"HOUSEHOLD", 135873341.17} , {"MACHINERY", 134438861.67} } ) 

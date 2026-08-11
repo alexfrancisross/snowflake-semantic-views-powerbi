@@ -13,6 +13,7 @@ This connector was built to bridge the gap between Snowflake's semantic layer an
 - [Installation](#installation)
 - [Using the Connector](#using-the-connector)
 - [Building the Connector from Source](#building-the-connector-from-source)
+- [Testing](#testing)
 - [PBIT Generator App](#pbit-generator-app)
 - [Sample Data](#sample-data)
 - [Known Limitations](#known-limitations)
@@ -165,6 +166,13 @@ Power Query SDK evaluation pane without a Power BI Desktop session:
 `{TestName, Expected, Actual, Pass}` covering server URL parsing
 (org-account, legacy locator, PrivateLink) and duplicate column-name
 resolution.
+
+## Testing
+
+A comprehensive, manually-run test suite (PQTest, a live Python integration
+suite, and a DAX Studio query pack) lives under `tests/` and runs against a
+live Snowflake account. See [tests/README.md](tests/README.md) for setup and
+run instructions.
 
 ## PBIT Generator App
 

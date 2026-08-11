@@ -1,0 +1,1 @@
+#table( type table [name = text, ItemKind = text, IsLeaf = logical] , {{"INFORMATION_SCHEMA", "Schema", false} , {"PUBLIC", "Schema", false} , {"TPCH_RICH_SVS", "Schema", false} , {"TPCH_RICH_TABLES", "Schema", false} , {"TPCH_RICH_VIEWS", "Schema", false} } ) 

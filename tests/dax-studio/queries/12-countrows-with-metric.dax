@@ -1,0 +1,10 @@
+// COUNTROWS combined with a real metric aggregate in the same query -
+// verifies row-count column selection doesn't collide with the other
+// requested aggregate.
+EVALUATE
+SUMMARIZECOLUMNS(
+    SV_CUSTOMER_ORDERS[CUSTOMER_NAME],
+    "Order Count", COUNTROWS(SV_CUSTOMER_ORDERS),
+    "Total Revenue", SUM(SV_CUSTOMER_ORDERS[TOTAL_REVENUE])
+)
+ORDER BY SV_CUSTOMER_ORDERS[CUSTOMER_NAME]

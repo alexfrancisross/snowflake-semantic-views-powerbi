@@ -1,0 +1,1 @@
+[ HasError = true, Reason = "DataSource.Error", Message = "Semantic view 'TPCH_RICH_DB.TPCH_RICH_SVS.SV_DOES_NOT_EXIST' not found - it may have been dropped or renamed, or your role may not have access" ] 
