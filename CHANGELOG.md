@@ -2,7 +2,7 @@
 
 All notable changes to the Snowflake Semantic Views Power BI Connector.
 
-## [Unreleased]
+## [3.3.2] - 2026-08-11
 
 ### Added
 

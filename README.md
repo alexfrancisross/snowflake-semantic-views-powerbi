@@ -443,7 +443,7 @@ You can also use "Analyze in Excel" to create PivotTables connected to your sema
 
 ## Version
 
-3.3.0
+3.3.2
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
