@@ -10,7 +10,7 @@
 
   <Package Name="Snowflake Semantic Views Connector"
            Manufacturer="Snowflake"
-           Version="3.3.0"
+           Version="3.3.2"
            UpgradeCode="A7E8C3D1-5B2F-4A9E-8C7D-6F5E4D3C2B1A"
            Compressed="yes"
            Scope="perUser">

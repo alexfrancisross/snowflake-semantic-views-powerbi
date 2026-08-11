@@ -2,6 +2,137 @@
 
 All notable changes to the Snowflake Semantic Views Power BI Connector.
 
+## [3.3.2] - 2026-08-11
+
+### Added
+
+- **Test suite** (`tests/`): PQTest query pack, a live Python integration
+  suite against `snowflake-connector-python`, and a DAX Studio end-to-end
+  query pack (`tests/dax-studio/`) that exercises real DirectQuery execution
+  through a live Power BI Desktop session. See `tests/README.md`.
+- **PQTest folding case for `Table.Group` -> `Table.Sort` -> `Table.FirstN`**
+  (`tests/pqtest/queries/04-folding/Folding-GroupSortFirstN.query.pq`): proves
+  the connector's M layer folds this chain to a single
+  `GROUP BY ... ORDER BY ... LIMIT` Snowflake query (run with
+  `--failOnFoldingFailure`). Added while investigating the known limitation
+  below, to guard against a regression at the connector layer even though the
+  Analysis Services-level limitation is out of the connector's control.
+
+### Known limitations
+
+- **`TOPN` over a grouped `SUMMARIZECOLUMNS` result does not fold in Power BI
+  Desktop DirectQuery**: `tests/dax-studio/queries/11-large-limit.dax`
+  (groups by two dimensions, then `TOPN(200, ...)`) can fail with
+  *"The resultset of a query to external data source has exceeded the
+  maximum allowed size of '1000000' rows"* on high-cardinality groupings.
+  Investigated via live `QUERY_HISTORY` evidence: Snowflake received
+  `SELECT ... GROUP BY 1, 2 LIMIT 1000001` (Analysis Services' own
+  DirectQuery cap-probe pattern) with no `ORDER BY`/`LIMIT 200` folded in -
+  meaning AS decided to materialize the entire grouped result locally and
+  perform the sort/TOPN itself, rather than pushing those steps to the same
+  query as the (successfully folded) `GROUP BY`. Ruled out a connector bug
+  two ways: (1) temporarily declaring the previously-omitted
+  `{"Table.Group", null}` DirectQuery capability produced byte-identical SQL,
+  so the capabilities table isn't gating this decision (`OnGroup` already
+  folds without it); (2) a PQTest probe of the same
+  `Table.Group`/`Table.Sort`/`Table.FirstN` chain, run directly against the
+  connector's M layer with `-foff`, folds correctly and returns exactly 200
+  rows. The gap is in Analysis Services' own DirectQuery fold-negotiation for
+  this query shape, not in the connector. Documented in README.md "Known
+  Limitations"; `Run-DaxStudioTests.ps1` now excludes this query from the
+  pass/fail gate (kept as a live check so a future AS fix would be noticed).
+- **`COUNTROWS()` reflects the semantic view's own row grain, not underlying
+  fact counts**: verified all 12 `tests/dax-studio/queries/*.dax` outputs for
+  analytical correctness against known TPC-H SF=1 reference data.
+  `05-countrows.dax` (`COUNTROWS(SV_REGIONAL_SALES)` grouped by
+  `REGION_NAME`) returns `1` for every region, and `12-countrows-with-metric.dax`
+  (`COUNTROWS(SV_CUSTOMER_ORDERS)` grouped by `CUSTOMER_NAME`) returns `1`
+  for every one of the 150,000 customers, including customers with no
+  orders. Both are correct, not bugs: `SV_REGIONAL_SALES` and
+  `SV_CUSTOMER_ORDERS` are pre-aggregated to those exact grains, so
+  `COUNTROWS` at that grain is mathematically guaranteed to be `1`.
+  Documented in README.md "Known Limitations" with the recommended
+  workaround (use a `SUM` over a dedicated count measure, e.g.
+  `ORDER_COUNT`, instead of `COUNTROWS()`, when a true fact count is
+  needed).
+
+### Fixed
+
+- **DAX Studio test runner couldn't attach to a running Desktop session**:
+  `dscmd.exe`'s `-s` server parameter only matches an open Power BI Desktop
+  instance by the `.pbip`'s bare filename, not its full path, and `-d
+  <database>` must be omitted entirely - dscmd resolves the AS catalog
+  itself once it matches the instance; the Desktop-visible friendly name
+  isn't a valid catalog name to pass explicitly. `Run-DaxStudioTests.ps1`
+  was passing the full path plus an explicit database name, so every query
+  failed with "Unable to find a running Power BI Desktop instance...".
+  Fixed by passing `Split-Path $PbipPath -Leaf` to `-s` and dropping
+  `-DatabaseName` from the script.
+- **DAX Studio fixture (`tests/dax-studio/SnowflakeConnectorFixture.*`) was
+  stale**: rebuilt from a manually-verified, live-connected Power BI Desktop
+  project. The real `SV_REGIONAL_SALES` semantic view has grown to 16
+  columns (previously assumed 8); TMDL/report/pbip files updated to match.
+
+## [3.3.2] - 2026-08-10
+
+### Fixed
+
+- **"Basic filtering: Unable to obtain the list of items"**: this turned out
+  to be two stacked bugs.
+
+  1. `ParseAggregateRecord`'s `IsRowCount` detection
+     (`connector/src/SnowflakeSemanticViews.pq`) only matched a bare
+     `Table.RowCount` reference, but Power Query's DirectQuery fold
+     negotiation for our declared `{"Table.RowCount", null}` capability
+     hands `OnGroup` a lambda wrapper instead - `(t) => Table.RowCount(t)` -
+     confirmed via a live mashup trace's `SqlExpressionTranslator/Translate`
+     entry. Undetected, this fell through to the position-based metric
+     fallback, wrapping an unrelated metric in `AGG()` against the grouped
+     dimension and tripping Snowflake's semantic-view granularity check
+     (`010956 (22023): ... higher level of granularity ...`) for two
+     unrelated columns. Fixed by adding a probe-based detection: call the
+     candidate function against a zero-column, 3-row table and check the
+     result is `3` - only a true row-counter ignores columns entirely and
+     succeeds; any column-referencing aggregate (`SUM`/`AVERAGE`/etc.)
+     errors out and is safely rejected.
+
+  2. Once `IsRowCount` correctly detected, the connector emitted literal
+     `COUNT(*)` for the aggregate - but Snowflake Semantic Views reject bare
+     `COUNT(*)` (and `AGG(COUNT(*))`, `AGG(*)`, `AGG(1)`) as an invalid
+     metric expression (`010274 (42601): ... Invalid metric expression`).
+     Per Snowflake's documented ad-hoc-metric syntax, the correct pattern is
+     `COUNT(<dimension_or_fact_column>)` with no `AGG()` wrapper. Fixed by
+     threading a `rowCountColumn` (the first available grouped
+     dimension/fact source column) from `GenerateSemanticViewQuery` into
+     `BuildSelectExpression`, so `COUNTROWS` now renders as e.g.
+     `COUNT("ORDER_YEAR")` instead of `COUNT(*)`.
+
+  Both fixes are covered by new `RunUnitTests()` regression cases and were
+  confirmed live: `snow sql` against the exact generated SQL returned
+  correct per-group row counts, and basic filtering now works end-to-end in
+  Power BI Desktop.
+
+## [3.3.1] - 2026-08-10
+
+### Fixed
+
+- **Issue #7 - "Error fetching data when filter with single value selected"**:
+  Snowflake rejects `ORDER BY` over a semantic-view dimension that isn't in the
+  SELECT/GROUP BY list (`002024 (42601): ... is not a valid order by
+  expression`). When a dimension filter is narrowed to a single value, Power
+  BI's engine drops that column from the projection (it's provably constant)
+  but keeps the sort spec, orphaning the `ORDER BY` term - two or more
+  selected values kept the column projected, so the bug only showed with a
+  single-value filter. `BuildOrderByClause`
+  (`connector/src/SnowflakeSemanticViews.pq`) now resolves every sort key to
+  its 1-based ordinal position in the actual SELECT list (matching the
+  existing `GROUP BY` convention) instead of emitting a bare quoted
+  identifier, trying the raw name, a `StripTablePrefix`'d name, and a
+  reverse `aliasMap` lookup (for sorting by a metric's source name when the
+  projection carries a Power BI alias like `a0`) in turn. A sort key that
+  resolves to nothing is dropped (with a `BuildOrderByClause/DroppedSortKey`
+  diagnostic trace) rather than emitted as an invalid `ORDER BY` term.
+
 ## [3.3.0] - 2026-07-07
 
 ### Added
@@ -46,7 +177,7 @@ All notable changes to the Snowflake Semantic Views Power BI Connector.
 ### Fixed
 
 - **Bare multi-segment account identifiers dropped their region**: a
-  server value like `cs83279.eu-west-2.aws` (no
+  server value like `<account>.<region>.aws` (no
   `.snowflakecomputing.com` suffix) was parsed by the connector's
   `ParseSnowflakeServer` as just the first segment, so no ADBC
   `uri.host` override was set and the driver built a host without the

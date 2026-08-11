@@ -13,6 +13,7 @@ This connector was built to bridge the gap between Snowflake's semantic layer an
 - [Installation](#installation)
 - [Using the Connector](#using-the-connector)
 - [Building the Connector from Source](#building-the-connector-from-source)
+- [Testing](#testing)
 - [PBIT Generator App](#pbit-generator-app)
 - [Sample Data](#sample-data)
 - [Known Limitations](#known-limitations)
@@ -166,6 +167,13 @@ Power Query SDK evaluation pane without a Power BI Desktop session:
 (org-account, legacy locator, PrivateLink) and duplicate column-name
 resolution.
 
+## Testing
+
+A comprehensive, manually-run test suite (PQTest, a live Python integration
+suite, and a DAX Studio query pack) lives under `tests/` and runs against a
+live Snowflake account. See [tests/README.md](tests/README.md) for setup and
+run instructions.
+
 ## PBIT Generator App
 
 The `streamlit/` folder contains a companion web application that simplifies creating Power BI reports from Snowflake Semantic Views.
@@ -283,6 +291,66 @@ From the `tpch_sample_data/` scripts, these views may show preview errors:
 
 These views work correctly in DirectQuery when you select compatible column combinations (e.g., dimensions from one path with their related metrics).
 
+### TOPN Over a Grouped/Aggregated Result Does Not Fold
+
+A DAX query that groups by dimensions (`SUMMARIZECOLUMNS`) and then takes the
+top N rows of that grouped result (`TOPN`) will not fold the sort/limit into
+the SQL sent to Snowflake. Analysis Services' DirectQuery engine pulls back
+the entire grouped result set and performs the sort and TOPN locally, rather
+than pushing a `GROUP BY ... ORDER BY ... LIMIT` in a single query.
+
+This is a limitation of Analysis Services' own DirectQuery fold negotiation
+for this query shape (confirmed by comparing the SQL Snowflake actually
+received, via `QUERY_HISTORY`, before and after experimentally declaring the
+`Table.Group` DirectQuery capability - the generated SQL was byte-identical
+either way, and the connector's `Table.Sort`/`Table.FirstN` handlers are
+never invoked for this shape at all). It is not specific to this connector -
+the same behavior is documented for other DirectQuery sources when TOPN
+follows a grouping step.
+
+**Symptom:** on a high-cardinality grouping (e.g. grouping by two dimensions
+with many distinct combinations), this can hit Analysis Services' 1,000,000-row
+external-query cap:
+
+> The resultset of a query to external data source has exceeded the maximum
+> allowed size of '1000000' rows.
+
+**The workaround:**
+
+- Filter the grouped dimensions down (e.g. a date range) before applying
+  TOPN, so the ungrouped-then-locally-sorted result stays under the cap.
+- Where possible, sort/limit on a pre-aggregated table or view (one row per
+  group already) instead of grouping and limiting in the same query - this
+  folds correctly, since no `Table.Group` step is involved.
+
+### COUNTROWS Reflects the Semantic View's Grain, Not Underlying Fact Counts
+
+Many semantic views are pre-aggregated to a specific dimension grain - for
+example, `SV_REGIONAL_SALES` has exactly one row per region, and
+`SV_CUSTOMER_ORDERS` has exactly one row per customer. `COUNTROWS(<view>)`
+counts rows of the view at whatever grain the query groups by. If that grain
+matches the view's own pre-aggregation grain, the result is trivially `1`
+for every group:
+
+```
+EVALUATE
+SUMMARIZECOLUMNS(
+    SV_REGIONAL_SALES[REGION_NAME],
+    "Row Count", COUNTROWS(SV_REGIONAL_SALES)
+)
+```
+
+returns `1` for every region - not a bug, but a likely surprise if you
+expected an order/transaction count. The same pattern holds for
+`SV_CUSTOMER_ORDERS` grouped by `CUSTOMER_NAME`: `COUNTROWS` returns `1` for
+every customer, including customers with no orders (where the revenue
+measure is blank).
+
+**The workaround:** use the view's own count-type measure column (e.g.
+`SUM(ORDER_COUNT)`) instead of `COUNTROWS()` when you need a true
+underlying fact count. You can cross-check that sum against a grand-total
+`ROW()` query with no dimensions to confirm it adds up correctly.
+
 ### Power BI Service and Gateway Configuration
 
 Custom connectors require a specific workflow to work with [Power BI Service and the on-premises data gateway](https://learn.microsoft.com/en-us/power-bi/connect-data/service-gateway-onprem). You cannot create standalone gateway connections—instead, you must publish from Power BI Desktop first.
@@ -375,7 +443,7 @@ You can also use "Analyze in Excel" to create PivotTables connected to your sema
 
 ## Version
 
-3.3.0
+3.3.2
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 

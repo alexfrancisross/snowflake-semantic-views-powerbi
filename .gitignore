@@ -4,13 +4,13 @@ __pycache__/
 .pytest_cache/
 tests/dax-studio/output/
 tests/dax-studio/results/
+tests/dax-studio/**/.pbi/
 tests/pqtest/tools/
 tests/pqtest/results/
 tests/pqtest/*.cred.json
 .cortex/
 docs/
 .ruff_cache/
-tests/
 PORTING-NOTES.md
 connector/installer/bin/
 connector/installer/obj/

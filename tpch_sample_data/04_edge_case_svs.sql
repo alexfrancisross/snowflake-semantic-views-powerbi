@@ -14,7 +14,7 @@
  *   physical column.
  *
  *   During the v3.3.0 code review this was investigated directly against a
- *   live account (cs83279.eu-west-2.aws, Snowflake version 10.23.103) using
+ *   live account (account redacted, Snowflake version 10.23.103) using
  *   every variant below, run as plain SQL identical to what the connector's
  *   GenerateSemanticViewQuery would produce (bare SELECT, AGG() wrapper,
  *   WHERE filter, GROUP BY ordinal, outer-subquery metric-filter wrap).
