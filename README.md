@@ -323,6 +323,34 @@ external-query cap:
   group already) instead of grouping and limiting in the same query - this
   folds correctly, since no `Table.Group` step is involved.
 
+### COUNTROWS Reflects the Semantic View's Grain, Not Underlying Fact Counts
+
+Many semantic views are pre-aggregated to a specific dimension grain - for
+example, `SV_REGIONAL_SALES` has exactly one row per region, and
+`SV_CUSTOMER_ORDERS` has exactly one row per customer. `COUNTROWS(<view>)`
+counts rows of the view at whatever grain the query groups by. If that grain
+matches the view's own pre-aggregation grain, the result is trivially `1`
+for every group:
+
+```
+EVALUATE
+SUMMARIZECOLUMNS(
+    SV_REGIONAL_SALES[REGION_NAME],
+    "Row Count", COUNTROWS(SV_REGIONAL_SALES)
+)
+```
+
+returns `1` for every region - not a bug, but a likely surprise if you
+expected an order/transaction count. The same pattern holds for
+`SV_CUSTOMER_ORDERS` grouped by `CUSTOMER_NAME`: `COUNTROWS` returns `1` for
+every customer, including customers with no orders (where the revenue
+measure is blank).
+
+**The workaround:** use the view's own count-type measure column (e.g.
+`SUM(ORDER_COUNT)`) instead of `COUNTROWS()` when you need a true
+underlying fact count. You can cross-check that sum against a grand-total
+`ROW()` query with no dimensions to confirm it adds up correctly.
+
 ### Power BI Service and Gateway Configuration
 
 Custom connectors require a specific workflow to work with [Power BI Service and the on-premises data gateway](https://learn.microsoft.com/en-us/power-bi/connect-data/service-gateway-onprem). You cannot create standalone gateway connections—instead, you must publish from Power BI Desktop first.

@@ -41,6 +41,20 @@ All notable changes to the Snowflake Semantic Views Power BI Connector.
   this query shape, not in the connector. Documented in README.md "Known
   Limitations"; `Run-DaxStudioTests.ps1` now excludes this query from the
   pass/fail gate (kept as a live check so a future AS fix would be noticed).
+- **`COUNTROWS()` reflects the semantic view's own row grain, not underlying
+  fact counts**: verified all 12 `tests/dax-studio/queries/*.dax` outputs for
+  analytical correctness against known TPC-H SF=1 reference data.
+  `05-countrows.dax` (`COUNTROWS(SV_REGIONAL_SALES)` grouped by
+  `REGION_NAME`) returns `1` for every region, and `12-countrows-with-metric.dax`
+  (`COUNTROWS(SV_CUSTOMER_ORDERS)` grouped by `CUSTOMER_NAME`) returns `1`
+  for every one of the 150,000 customers, including customers with no
+  orders. Both are correct, not bugs: `SV_REGIONAL_SALES` and
+  `SV_CUSTOMER_ORDERS` are pre-aggregated to those exact grains, so
+  `COUNTROWS` at that grain is mathematically guaranteed to be `1`.
+  Documented in README.md "Known Limitations" with the recommended
+  workaround (use a `SUM` over a dedicated count measure, e.g.
+  `ORDER_COUNT`, instead of `COUNTROWS()`, when a true fact count is
+  needed).
 
 ### Fixed
 
