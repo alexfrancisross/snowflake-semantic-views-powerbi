@@ -8,13 +8,15 @@ model Model
 
 annotation __PBI_TimeIntelligenceEnabled = 1
 
-annotation PBI_QueryOrder = ["SV_REGIONAL_SALES","SV_DAILY_SALES","SV_CUSTOMER_ORDERS"]
+annotation PBI_QueryOrder = ["SV_REGIONAL_SALES","SV_DAILY_SALES","SV_CUSTOMER_ORDERS","SV_SUPPLY_CHAIN","SV_MONTHLY_TRENDS"]
 
 annotation PBI_ProTooling = ["DevMode"]
 
 ref table SV_REGIONAL_SALES
 ref table SV_DAILY_SALES
 ref table SV_CUSTOMER_ORDERS
+ref table SV_SUPPLY_CHAIN
+ref table SV_MONTHLY_TRENDS
 
 ref cultureInfo en-US
 

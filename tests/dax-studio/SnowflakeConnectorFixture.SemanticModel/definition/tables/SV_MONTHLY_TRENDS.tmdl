@@ -1,0 +1,98 @@
+table SV_MONTHLY_TRENDS
+	lineageTag: 5c9df658-228b-4935-a6aa-c00649d1df10
+
+	column MONTH
+		dataType: int64
+		formatString: 0
+		sourceProviderType: bigint
+		lineageTag: dfcf6058-f4a7-482d-b4f5-4c83c29bd2fb
+		summarizeBy: sum
+		sourceColumn: MONTH
+
+		annotation SummarizationSetBy = Automatic
+
+	column MONTH_NAME
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: dea46acf-7b45-4995-9cb6-26d6683fc68e
+		summarizeBy: none
+		sourceColumn: MONTH_NAME
+
+		annotation SummarizationSetBy = Automatic
+
+	column REGION_NAME
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: abb38ebe-8519-4bf7-8071-ce871f6f8d3f
+		summarizeBy: none
+		sourceColumn: REGION_NAME
+
+		annotation SummarizationSetBy = Automatic
+
+	column YEAR
+		dataType: int64
+		formatString: 0
+		sourceProviderType: bigint
+		lineageTag: b583355a-6a7e-4fb5-8d52-36730f727cbb
+		summarizeBy: sum
+		sourceColumn: YEAR
+
+		annotation SummarizationSetBy = Automatic
+
+	column YEAR_MONTH
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: a50b5042-b914-4877-a3b1-bc7657137610
+		summarizeBy: none
+		sourceColumn: YEAR_MONTH
+
+		annotation SummarizationSetBy = Automatic
+
+	column CUMULATIVE_YTD
+		dataType: double
+		sourceProviderType: double
+		lineageTag: b91509e8-4d39-43cf-b695-f2035bc7bfc6
+		summarizeBy: sum
+		sourceColumn: CUMULATIVE_YTD
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column MONTHLY_REVENUE
+		dataType: double
+		sourceProviderType: double
+		lineageTag: 318a3492-4111-4e26-8425-8f124f239b7f
+		summarizeBy: sum
+		sourceColumn: MONTHLY_REVENUE
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column ORDER_COUNT
+		dataType: double
+		sourceProviderType: double
+		lineageTag: cf73c11f-887d-4fec-8655-0ef225ab5447
+		summarizeBy: sum
+		sourceColumn: ORDER_COUNT
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	partition SV_MONTHLY_TRENDS = m
+		mode: directQuery
+		source =
+				let
+				    Source = SnowflakeSemanticViews.Contents("cs83279.eu-west-2.aws", "XSMALL", null, null, null, null, null),
+				    TPCH_RICH_DB = Source{[name="TPCH_RICH_DB"]}[Data],
+				    TPCH_RICH_SVS = TPCH_RICH_DB{[name="TPCH_RICH_SVS"]}[Data],
+				    SV_MONTHLY_TRENDS = TPCH_RICH_SVS{[name="SV_MONTHLY_TRENDS"]}[Data]
+				in
+				    SV_MONTHLY_TRENDS
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Table
+

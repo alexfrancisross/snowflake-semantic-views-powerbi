@@ -1,0 +1,13 @@
+// Multi-value / OR filter: an IN-list filter on a dimension, exercising the
+// connector's OR/IN WHERE-clause generation (all prior filters were
+// single-value equality).
+EVALUATE
+SUMMARIZECOLUMNS(
+    SV_CUSTOMER_ORDERS[REGION_NAME],
+    FILTER(
+        ALL(SV_CUSTOMER_ORDERS[REGION_NAME]),
+        SV_CUSTOMER_ORDERS[REGION_NAME] = "EUROPE" || SV_CUSTOMER_ORDERS[REGION_NAME] = "ASIA"
+    ),
+    "Total Revenue", SUM(SV_CUSTOMER_ORDERS[TOTAL_REVENUE])
+)
+ORDER BY SV_CUSTOMER_ORDERS[REGION_NAME]

@@ -1,0 +1,13 @@
+// Onboards SV_SUPPLY_CHAIN - a genuine M:M relationship via the PARTSUPP
+// bridge table (6 tables, 5 relationships). README already documents
+// Navigator preview errors for this view ("Preview Errors for Complex
+// Semantic Views"); this is the first end-to-end DirectQuery smoke test of
+// it, using a compatible dimension/metric combination (dimensions and
+// metrics both from the PART/PARTSUPP side of the bridge).
+EVALUATE
+SUMMARIZECOLUMNS(
+    SV_SUPPLY_CHAIN[BRAND],
+    "Total Supply Cost", SUM(SV_SUPPLY_CHAIN[TOTAL_SUPPLY_COST]),
+    "Total Avail Qty", SUM(SV_SUPPLY_CHAIN[TOTAL_AVAIL_QTY])
+)
+ORDER BY SV_SUPPLY_CHAIN[BRAND]

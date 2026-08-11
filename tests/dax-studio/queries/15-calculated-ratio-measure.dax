@@ -1,0 +1,15 @@
+// Calculated/derived measure: a DAX measure combining two SV metrics via
+// DIVIDE (with its built-in divide-by-zero guard), rather than a raw
+// passthrough SUM of a single metric column.
+DEFINE
+    MEASURE SV_CUSTOMER_ORDERS[Avg Order Value] =
+        DIVIDE(
+            SUM(SV_CUSTOMER_ORDERS[TOTAL_REVENUE]),
+            SUM(SV_CUSTOMER_ORDERS[ORDER_COUNT])
+        )
+EVALUATE
+SUMMARIZECOLUMNS(
+    SV_CUSTOMER_ORDERS[MARKET_SEGMENT],
+    "Avg Order Value", [Avg Order Value]
+)
+ORDER BY SV_CUSTOMER_ORDERS[MARKET_SEGMENT]

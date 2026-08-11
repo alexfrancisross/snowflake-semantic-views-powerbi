@@ -1,0 +1,12 @@
+// Onboards SV_MONTHLY_TRENDS (pre-aggregated time-series view over
+// V_MONTHLY_REVENUE) and exercises a time-intelligence shape: filter to one
+// YEAR, group by YEAR_MONTH, project both the period metric and the
+// pre-computed year-to-date cumulative metric.
+EVALUATE
+SUMMARIZECOLUMNS(
+    SV_MONTHLY_TRENDS[YEAR_MONTH],
+    FILTER(ALL(SV_MONTHLY_TRENDS[YEAR]), SV_MONTHLY_TRENDS[YEAR] = 1997),
+    "Monthly Revenue", SUM(SV_MONTHLY_TRENDS[MONTHLY_REVENUE]),
+    "Cumulative YTD", SUM(SV_MONTHLY_TRENDS[CUMULATIVE_YTD])
+)
+ORDER BY SV_MONTHLY_TRENDS[YEAR_MONTH]

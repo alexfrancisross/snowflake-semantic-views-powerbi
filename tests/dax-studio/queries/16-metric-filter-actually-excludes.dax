@@ -1,0 +1,20 @@
+// Rigor follow-up to 08-metric-filter-outer-subquery.dax: that query's
+// threshold (1,000,000) sits far below every nation's actual ~9B revenue, so
+// it never excludes a row - the exclusion path of the outer-subquery/
+// metric-filter pattern was never exercised. This query uses a threshold
+// that DOES exclude some of the 25 nations, confirming the exclusion path
+// works, not just the pass-through path.
+DEFINE
+    MEASURE SV_REGIONAL_SALES[Total Revenue] = SUM(SV_REGIONAL_SALES[TOTAL_REVENUE])
+EVALUATE
+CALCULATETABLE(
+    SUMMARIZECOLUMNS(
+        SV_REGIONAL_SALES[NATION_NAME],
+        "Total Revenue", [Total Revenue]
+    ),
+    FILTER(
+        SUMMARIZECOLUMNS(SV_REGIONAL_SALES[NATION_NAME], "Total Revenue", [Total Revenue]),
+        [Total Revenue] > 9100000000
+    )
+)
+ORDER BY SV_REGIONAL_SALES[NATION_NAME]

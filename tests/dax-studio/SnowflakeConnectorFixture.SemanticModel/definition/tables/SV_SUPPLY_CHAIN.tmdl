@@ -1,0 +1,107 @@
+table SV_SUPPLY_CHAIN
+	lineageTag: 474e378b-18db-48a2-9d0f-17e22c64406a
+
+	column NATION_NAME
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: 7611f8c9-6f3b-4ae0-98c0-e43d76dcc7f0
+		summarizeBy: none
+		sourceColumn: NATION_NAME
+
+		annotation SummarizationSetBy = Automatic
+
+	column BRAND
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: 4234bc30-f991-44b9-99f1-711a3fce2f8e
+		summarizeBy: none
+		sourceColumn: BRAND
+
+		annotation SummarizationSetBy = Automatic
+
+	column TYPE
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: 429fec17-9378-4545-aefe-7fbf8fb76991
+		summarizeBy: none
+		sourceColumn: TYPE
+
+		annotation SummarizationSetBy = Automatic
+
+	column REGION_NAME
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: f94927e4-2f64-45b6-b2e4-ae7baf54dbd3
+		summarizeBy: none
+		sourceColumn: REGION_NAME
+
+		annotation SummarizationSetBy = Automatic
+
+	column SUPPLIER_NAME
+		dataType: string
+		sourceProviderType: nvarchar(max)
+		lineageTag: 1265403c-d6b8-4316-8f3d-abd3f5d07dd4
+		summarizeBy: none
+		sourceColumn: SUPPLIER_NAME
+
+		annotation SummarizationSetBy = Automatic
+
+	column TOTAL_EXTENDED_PRICE
+		dataType: double
+		sourceProviderType: double
+		lineageTag: 3d99c1d1-079e-47ba-9f5e-6f1c167bdc98
+		summarizeBy: sum
+		sourceColumn: TOTAL_EXTENDED_PRICE
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column TOTAL_QUANTITY
+		dataType: double
+		sourceProviderType: double
+		lineageTag: c9b359b4-81a1-4a4a-ade2-452298aec1a7
+		summarizeBy: sum
+		sourceColumn: TOTAL_QUANTITY
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column TOTAL_AVAIL_QTY
+		dataType: double
+		sourceProviderType: double
+		lineageTag: dbbe9a8a-2d00-4436-9564-c53e60a84e36
+		summarizeBy: sum
+		sourceColumn: TOTAL_AVAIL_QTY
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column TOTAL_SUPPLY_COST
+		dataType: double
+		sourceProviderType: double
+		lineageTag: 6626fd6d-0886-4628-8547-82330744a53b
+		summarizeBy: sum
+		sourceColumn: TOTAL_SUPPLY_COST
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	partition SV_SUPPLY_CHAIN = m
+		mode: directQuery
+		source =
+				let
+				    Source = SnowflakeSemanticViews.Contents("cs83279.eu-west-2.aws", "XSMALL", null, null, null, null, null),
+				    TPCH_RICH_DB = Source{[name="TPCH_RICH_DB"]}[Data],
+				    TPCH_RICH_SVS = TPCH_RICH_DB{[name="TPCH_RICH_SVS"]}[Data],
+				    SV_SUPPLY_CHAIN = TPCH_RICH_SVS{[name="SV_SUPPLY_CHAIN"]}[Data]
+				in
+				    SV_SUPPLY_CHAIN
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Exception
+

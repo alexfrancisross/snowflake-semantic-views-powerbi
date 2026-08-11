@@ -1,0 +1,1 @@
+#table( type table [REGION_NAME = text, TOTAL_REVENUE = number] , {{"ASIA", 45613415042.56} , {"EUROPE", 45793265459.71} } ) 

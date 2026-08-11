@@ -127,6 +127,68 @@ class SnowflakeSemanticViewSQLTests(unittest.TestCase):
         for row in rows:
             self.assertEqual(row[1], "EUROPE")
 
+    def test_multi_value_or_filter_sql_shape(self):
+        """OR-chained equality filter (IN-list shape) on a dimension folds correctly."""
+        sql = (
+            f'SELECT "REGION_NAME" AS "REGION_NAME", AGG("TOTAL_REVENUE") AS "TOTAL_REVENUE" '
+            f'FROM {DATABASE}.{SCHEMA}.SV_CUSTOMER_ORDERS '
+            f'WHERE "REGION_NAME" = \'EUROPE\' OR "REGION_NAME" = \'ASIA\' GROUP BY 1 ORDER BY 1'
+        )
+        columns, rows = self.query(sql)
+        self.assertEqual(columns, ["REGION_NAME", "TOTAL_REVENUE"])
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({row[0] for row in rows}, {"ASIA", "EUROPE"})
+
+    def test_metric_filter_actually_excludes_rows(self):
+        """Metric filter (outer-subquery wrap) with a threshold that excludes some rows.
+
+        Rigor follow-up to test_metric_filter_outer_subquery_wrap: that test's
+        threshold (1,000,000) sits far below every nation's actual ~9B
+        revenue, so it never excludes a row. This confirms the exclusion path
+        itself works, not just the pass-through path.
+        """
+        baseline_sql = (
+            f'SELECT "NATION_NAME" AS "NATION_NAME", AGG("TOTAL_REVENUE") AS "TOTAL_REVENUE" '
+            f'FROM {DATABASE}.{SCHEMA}.SV_REGIONAL_SALES GROUP BY 1'
+        )
+        _, baseline_rows = self.query(baseline_sql)
+
+        filtered_sql = (
+            f'SELECT * FROM ('
+            f'SELECT "NATION_NAME" AS "NATION_NAME", AGG("TOTAL_REVENUE") AS "TOTAL_REVENUE" '
+            f'FROM {DATABASE}.{SCHEMA}.SV_REGIONAL_SALES GROUP BY 1'
+            f') AS "_" WHERE "TOTAL_REVENUE" > 9100000000'
+        )
+        columns, filtered_rows = self.query(filtered_sql)
+        self.assertEqual(columns, ["NATION_NAME", "TOTAL_REVENUE"])
+        self.assertGreater(len(filtered_rows), 0)
+        self.assertLess(len(filtered_rows), len(baseline_rows))
+        for row in filtered_rows:
+            self.assertGreater(row[1], 9100000000)
+
+    def test_supply_chain_mm_view_smoke(self):
+        """SV_SUPPLY_CHAIN (M:M relationship via the PARTSUPP bridge table) generates valid SQL."""
+        sql = (
+            f'SELECT "BRAND" AS "BRAND", AGG("TOTAL_SUPPLY_COST") AS "TOTAL_SUPPLY_COST", '
+            f'AGG("TOTAL_AVAIL_QTY") AS "TOTAL_AVAIL_QTY" '
+            f'FROM {DATABASE}.{SCHEMA}.SV_SUPPLY_CHAIN GROUP BY 1 ORDER BY 1 LIMIT 10'
+        )
+        columns, rows = self.query(sql)
+        self.assertEqual(columns, ["BRAND", "TOTAL_SUPPLY_COST", "TOTAL_AVAIL_QTY"])
+        self.assertGreater(len(rows), 0)
+
+    def test_monthly_trends_view_smoke(self):
+        """SV_MONTHLY_TRENDS (pre-aggregated time-series view) generates valid SQL."""
+        sql = (
+            f'SELECT "YEAR_MONTH" AS "YEAR_MONTH", AGG("MONTHLY_REVENUE") AS "MONTHLY_REVENUE", '
+            f'AGG("CUMULATIVE_YTD") AS "CUMULATIVE_YTD" '
+            f'FROM {DATABASE}.{SCHEMA}.SV_MONTHLY_TRENDS '
+            f'WHERE "YEAR" = 1997 GROUP BY 1 ORDER BY 1'
+        )
+        columns, rows = self.query(sql)
+        self.assertEqual(columns, ["YEAR_MONTH", "MONTHLY_REVENUE", "CUMULATIVE_YTD"])
+        self.assertGreater(len(rows), 0)
+
     def test_all_edge_case_views_smoke(self):
         """Smoke pass: every edge-case semantic view's dims+metrics query returns rows.
 

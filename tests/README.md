@@ -76,9 +76,12 @@ directly through `snowflake-connector-python`.
 
 1. Open `tests/dax-studio/SnowflakeConnectorFixture.pbip` in Power BI
    Desktop. Complete the connector's auth prompt (Username/Password; the
-   password is the PAT from `connections.toml`). Let the three tables
-   (`SV_REGIONAL_SALES`, `SV_CUSTOMER_ORDERS`, `SV_DAILY_SALES`) load, then
-   save.
+   password is the PAT from `connections.toml`). Let the five tables
+   (`SV_REGIONAL_SALES`, `SV_CUSTOMER_ORDERS`, `SV_DAILY_SALES`,
+   `SV_SUPPLY_CHAIN`, `SV_MONTHLY_TRENDS`) load, then save. `SV_SUPPLY_CHAIN`
+   and `SV_MONTHLY_TRENDS` were added to cover a genuine M:M join topology
+   and a time-intelligence shape (see `13`-`17` in `queries/`) - if they
+   aren't already in the fixture, add them via Navigator before saving.
 2. Leave Desktop open with the file loaded, then run:
    ```powershell
    pwsh tests/dax-studio/Run-DaxStudioTests.ps1
