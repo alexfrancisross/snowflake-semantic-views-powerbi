@@ -177,7 +177,7 @@ All notable changes to the Snowflake Semantic Views Power BI Connector.
 ### Fixed
 
 - **Bare multi-segment account identifiers dropped their region**: a
-  server value like `cs83279.eu-west-2.aws` (no
+  server value like `<account>.<region>.aws` (no
   `.snowflakecomputing.com` suffix) was parsed by the connector's
   `ParseSnowflakeServer` as just the first segment, so no ADBC
   `uri.host` override was set and the driver built a host without the

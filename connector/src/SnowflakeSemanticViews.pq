@@ -2865,7 +2865,7 @@ shared SnowflakeSemanticViews.RunUnitTests = () as table =>
         pMixedCase = ParseSnowflakeServer("MyOrg-MyAccount.snowflakecomputing.com"),
 
         // --- ParseSnowflakeServer: bare multi-segment identifier keeps its region via full Host ---
-        pBareMulti = ParseSnowflakeServer("cs83279.eu-west-2.aws"),
+        pBareMulti = ParseSnowflakeServer("ab12345.eu-west-2.aws"),
 
         // --- ParseSnowflakeServer: bare single-segment identifier lets the driver build the host ---
         pBareSingle = ParseSnowflakeServer("myaccount"),
@@ -2975,9 +2975,9 @@ shared SnowflakeSemanticViews.RunUnitTests = () as table =>
 
             makeCase("ParseServer_MixedCase_AccountPreservesCase", "MyOrg-MyAccount", pMixedCase[Account]),
 
-            makeCase("ParseServer_BareMulti_Account", "cs83279", pBareMulti[Account]),
+            makeCase("ParseServer_BareMulti_Account", "ab12345", pBareMulti[Account]),
             makeCase("ParseServer_BareMulti_Region", "eu-west-2", pBareMulti[Region]),
-            makeCase("ParseServer_BareMulti_Host", "cs83279.eu-west-2.aws.snowflakecomputing.com", pBareMulti[Host]),
+            makeCase("ParseServer_BareMulti_Host", "ab12345.eu-west-2.aws.snowflakecomputing.com", pBareMulti[Host]),
             makeCase("ParseServer_BareMulti_UrlFormat", "LegacyLocator", pBareMulti[UrlFormat]),
 
             makeCase("ParseServer_BareSingle_Account", "myaccount", pBareSingle[Account]),
